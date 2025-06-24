@@ -1,11 +1,14 @@
 jupyterlab
 matplotlib
-numpy
+numpy==1.26.4
 pandas
-torch
+torch==2.1.2
 scikit-learn
 scipy
 torchaudio
 torchvision
 tqdm
 rdkit
+transformers==4.36.2
+safetensors
+tokenizers
