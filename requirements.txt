@@ -12,3 +12,4 @@ rdkit
 transformers==4.36.2
 safetensors
 tokenizers
+accelerate

@@ -19,17 +19,18 @@ This project provides:
 
 ## Installation
 
-Create the conda environment:
+Clone the repository:
+
+```bash
+git clone https://github.com/yueyue2299/PINN-SAC.git
+cd PINN-SAC
+```
+
+Create and activate the conda environment:
 
 ```bash
 conda env create -f PINN-SAC.yml
 conda activate PINN-SAC
-```
-
-Install optional pip dependencies:
-
-```bash
-pip install transformers accelerate
 ```
 
 ## Usage
