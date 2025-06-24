@@ -35,9 +35,11 @@ conda activate PINN-SAC
 
 ## Usage
 
-```python
+You can use the [`PINNSAC.ipynb`](./PINNSAC.ipynb) notebook, which demonstrates how to:
 
-```
+- Predict **σ-profiles** and molecular geometry from SMILES strings  
+- Predict **activity coefficients** for both binary and multicomponent mixtures  
+  - You can choose between the **Base model** (trained on COSMO-SAC data) and the **Fine-tuned model** (refined with experimental data)
 
 ## Project Structure
 
@@ -50,6 +52,7 @@ conda activate PINN-SAC
 | `models`           | Directory containing σ-profile, geometry and Γ predictor |
 | `smi_ted_light`    | SMI-TED project (external module)                        |
 | `utils`            | Utility functions used across the project                |
+| `README.md`        | Project readme                                           |
 
 
 
