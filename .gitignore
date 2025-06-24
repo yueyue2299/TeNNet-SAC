@@ -1,0 +1,26 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.so
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Editor settings
+.vscode/
+*.code-workspace
+
+# Env or credentials
+.env
+.env.*
+
+# Conda environment
+*.yml
+!PINN-SAC.yml
+
+# Logs
+*.log
