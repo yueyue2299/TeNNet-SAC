@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import numpy as np
+mpl.rcParams.update(mpl.rcParamsDefault)
 
 def plot_sigma_prf(smiles, prf_tensor, savepath=None):
     prf = prf_tensor.squeeze().detach().cpu().numpy()
