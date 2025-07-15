@@ -58,7 +58,7 @@ You can use the [`PINNSAC.ipynb`](./PINNSAC.ipynb) notebook, which demonstrates 
 
 ## License
 
-This repository is currently private. Licensing will be added upon publication or release.
+MIT License. See [LICENSE](LICENSE) for details.
 
 ## References
 
