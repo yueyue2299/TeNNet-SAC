@@ -54,12 +54,6 @@ You can use the [`PINNSAC.ipynb`](./PINNSAC.ipynb) notebook, which demonstrates 
 | `utils`            | Utility functions used across the project                |
 | `README.md`        | Project readme                                           |
 
-
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
-
 ## Citation
 
 If you use this project in your research, please cite:
@@ -83,6 +77,9 @@ Soares, E.; Shirasuna, V.; Brazil, E. V.; Cerqueira, R.; Zubarev, D.; Schmidt, K
 
 The folder `smi_ted_light/` is adapted from the [SMI-TED](https://github.com/IBM/materials/tree/main/models/smi_ted) repository by Soares et al., with only minimal modifications. The core implementation remains unchanged. Full credit goes to the original authors.
 
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
 ---
 
 Maintained by [@yueyue2299](https://github.com/yueyue2299).
