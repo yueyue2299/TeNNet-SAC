@@ -2,6 +2,8 @@
 
 PINN-SAC (Physics-Informed Neural Network for Segment Activity Coefficients) is a machine learning framework designed to predict molecular activity coefficients in multicomponent systems using only molecular SMILES strings, composition, and temperature as input. 
 
+![PINN-SAC](pinnsac.png)
+
 This project provides:
 
 1. **σ-profile prediction model**, including surface area and molecular volume estimation  
