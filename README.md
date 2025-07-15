@@ -80,6 +80,7 @@ The folder `smi_ted_light/` is adapted from the [SMI-TED](https://github.com/IBM
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
 ---
 
 Maintained by [@yueyue2299](https://github.com/yueyue2299).
