@@ -60,6 +60,13 @@ You can use the [`PINNSAC.ipynb`](./PINNSAC.ipynb) notebook, which demonstrates 
 
 MIT License. See [LICENSE](LICENSE) for details.
 
+## Citation
+
+If you use this project in your research, please cite:
+
+- **PINN-SAC** 
+We plan to release a related manuscript. Citation information will be added here when available.
+
 ## References
 
 This project builds upon the following foundational models. If you use this project in your research, we encourage you to cite them as well:
