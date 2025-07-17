@@ -60,9 +60,11 @@ def ensemble_segac(models, sigma, temperature):
     return segac_mean
 
 def calc_ln_gamma(smiles_list, mole_fraction_list, temperature, gamma_predictor, get_sigma_profile_fn):
+    if temperature <= 0:
+        raise ValueError(f"Temperature must be greater than 0 K. Got: {temperature}")
     aeff = 5.8447  # A2
     num_components = len(smiles_list)
-
+    
     if len(mole_fraction_list) == num_components - 1:
         last_mf = 1.0 - sum(mole_fraction_list)
         if last_mf < 0 or last_mf > 1:

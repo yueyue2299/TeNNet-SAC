@@ -58,7 +58,12 @@ def plot_binary_lng(x1_list, temperature, ln_gamma_1, ln_gamma_2, smiles_1, smil
     plt.xticks(fontsize=10)
     plt.yticks(fontsize=10)
     plt.legend(fontsize=11)
-    
+
+    plt.xlim(0, 1)
+    y_min = min(np.min(ln_gamma_1), np.min(ln_gamma_2)) - 0.01
+    y_max = max(np.max(ln_gamma_1), np.max(ln_gamma_2)) + 0.01
+    plt.ylim(y_min, y_max)
+
     plt.tight_layout()
     if savepath:
         plt.savefig(savepath, dpi=300, bbox_inches="tight")
