@@ -114,6 +114,8 @@ def calc_ln_gamma(smiles_list, mole_fraction_list, temperature, gamma_predictor,
 
 def calc_ln_gamma_binary(smiles_1, smiles_2, x1_list, temperature,
                          gamma_predictor, get_sigma_profile_fn):
+    if temperature <= 0:
+        raise ValueError(f"Temperature must be greater than 0 K. Got: {temperature}")
     aeff = 5.8447  # A²
 
     # Get sigma profiles, areas, volumes
