@@ -37,7 +37,11 @@ conda activate PINN-SAC
 
 ## Usage
 
-You can use the [`PINNSAC.ipynb`](./PINNSAC.ipynb) notebook, which demonstrates how to:
+You can use the [`PINNSAC.ipynb`](./PINNSAC.ipynb) notebook locally, or try it directly on Google Colab:
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Xh1BT-ok73La7AQbjjVSwsRjf6q3JiGx?usp=sharing)
+
+This notebook demonstrates how to:
 
 - Predict **σ-profiles** and molecular geometry from SMILES strings  
 - Predict **activity coefficients** for both binary and multicomponent mixtures  
