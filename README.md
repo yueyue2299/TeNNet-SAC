@@ -1,8 +1,8 @@
-# PINN-SAC
+# TeNNet-SAC
 
-PINN-SAC (Physics-Informed Neural Network for Segment Activity Coefficients) is a machine learning framework designed to predict molecular activity coefficients in multicomponent systems using only molecular SMILES strings, composition, and temperature as input. 
+TeNNet-SAC (Thermodynamics-Embedded Neural Network for Segment Activity Coefficients) is a machine learning framework designed to predict molecular activity coefficients in multicomponent systems using only molecular SMILES strings, composition, and temperature as input. 
 
-![PINN-SAC](pinnsac.png)
+![TeNNet-SAC](architecture.png)
 
 This project provides:
 
@@ -24,20 +24,20 @@ This project provides:
 Clone the repository:
 
 ```bash
-git clone https://github.com/yueyue2299/PINN-SAC.git
-cd PINN-SAC
+git clone https://github.com/yueyue2299/TeNNet-SAC.git
+cd TeNNet-SAC
 ```
 
 Create and activate the conda environment:
 
 ```bash
-conda env create -f PINN-SAC.yml
-conda activate PINN-SAC
+conda env create -f TeNNet-SAC.yml
+conda activate TeNNet-SAC
 ```
 
 ## Usage
 
-You can use the [`PINNSAC.ipynb`](./PINNSAC.ipynb) notebook locally, or try it directly on Google Colab:
+You can use the [`TeNNetSAC.ipynb`](./TeNNetSAC.ipynb) notebook locally, or try it directly on Google Colab:
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Xh1BT-ok73La7AQbjjVSwsRjf6q3JiGx?usp=sharing)
 
@@ -51,9 +51,9 @@ This notebook demonstrates how to:
 
 | File/Folder        | Description                                              |
 |--------------------|----------------------------------------------------------|
-| `PINN-SAC.yml`     | Conda environment configuration                          |
+| `TeNNet-SAC.yml`     | Conda environment configuration                          |
 | `requirements.txt` | pip-style dependency list                                |
-| `PINNSAC.ipynb`    | Example notebook demonstrating model usage               |
+| `TeNNetSAC.ipynb`    | Example notebook demonstrating model usage               |
 | `ckpt_files`       | Directory for check point files                          |
 | `models`           | Directory containing σ-profile, geometry and Γ predictor |
 | `smi_ted_light`    | SMI-TED project (external module)                        |
@@ -64,7 +64,7 @@ This notebook demonstrates how to:
 
 If you use this project in your research, please cite:
 
-- **PINN-SAC** 
+- **TeNNet-SAC** 
 We plan to release a related manuscript. Citation information will be added here when available.
 
 ## References
