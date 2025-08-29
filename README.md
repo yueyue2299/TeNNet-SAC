@@ -15,7 +15,7 @@ This project provides:
 
 - Predicts activity coefficients beyond binary systems
 - Requires only SMILES strings, mole fractions, and temperature
-- Physics-informed architecture ensures thermodynamic consistency  
+- Hard-constraint architecture ensures thermodynamic consistency  
 - Modular design: supports use of σ-profiles from QC calculations  
 - Robust and generalizable via two-stage training: synthetic COSMO-SAC pretraining followed by experimental fine-tuning, preserving physical consistency
 
