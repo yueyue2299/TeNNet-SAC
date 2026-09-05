@@ -1,4 +1,3 @@
-PATTERN = "(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\\\|\/|:|~|@|\?|>|\*|\$|\%[0-9]{2}|[0-9])"
 # Deep learning
 import torch
 import torch.nn as nn
@@ -13,8 +12,8 @@ from .fast_transformers.builders.transformer_builders import BaseTransformerEnco
 from .fast_transformers.builders.attention_builders import AttentionBuilder
 from .fast_transformers.feature_maps import GeneralizedRandomFeatures
 from .fast_transformers.masking import LengthMask
-from transformers import BertTokenizer
 from huggingface_hub import hf_hub_download
+from .tokenizer import MolTranBertTokenizer
 
 # Data
 import numpy as np
@@ -29,7 +28,6 @@ PandasTools.RenderImagesInAllDataFrames(True)
 
 # Standard library
 from functools import partial
-import regex as re
 import random
 import os
 import gc
@@ -46,54 +44,6 @@ def normalize_smiles(smi, canonical=True, isomeric=False):
     except:
         normalized = None
     return normalized
-
-
-class MolTranBertTokenizer(BertTokenizer):
-    def __init__(self, vocab_file: str = '',
-                 do_lower_case=False,
-                 unk_token='<pad>',
-                 sep_token='<eos>',
-                 pad_token='<pad>',
-                 cls_token='<bos>',
-                 mask_token='<mask>',
-                 **kwargs):
-        super().__init__(vocab_file,
-                         unk_token=unk_token,
-                         sep_token=sep_token,
-                         pad_token=pad_token,
-                         cls_token=cls_token,
-                         mask_token=mask_token,
-                         **kwargs)
-
-        self.regex_tokenizer = re.compile(PATTERN)
-        self.wordpiece_tokenizer = None
-        self.basic_tokenizer = None
-        with open(vocab_file) as f:
-            self.padding_idx = f.readlines().index(pad_token+'\n')
-
-    def _tokenize(self, text):
-        split_tokens = self.regex_tokenizer.findall(text)
-        return split_tokens
-    
-    def convert_idx_to_tokens(self, idx_tensor):
-        tokens = [self.convert_ids_to_tokens(idx) for idx in idx_tensor.tolist()]
-        return tokens
-
-    def convert_tokens_to_string(self, tokens):
-        stopwords = ['<bos>', '<eos>']
-        clean_tokens = [word for word in tokens if word not in stopwords]
-        out_string = ''.join(clean_tokens)
-        return out_string
-    
-    def get_padding_idx(self):
-        return self.padding_idx
-    
-    def idx_to_smiles(self, torch_model, idx):
-        '''Convert tokens idx back to SMILES text'''
-        rev_tokens = torch_model.tokenizer.convert_idx_to_tokens(idx)
-        flat_list_tokens = [item for sublist in rev_tokens for item in sublist]
-        decoded_smiles = torch_model.tokenizer.convert_tokens_to_string(flat_list_tokens)
-        return decoded_smiles
 
 
 ## Transformer layers
@@ -668,13 +618,17 @@ def load_smi_ted(folder="./smi_ted_light",
     tokenizer = MolTranBertTokenizer(os.path.join(folder, vocab_filename))
     model = Smi_ted(tokenizer)
 
-    repo_id = "ibm/materials.smi-ted"
-    filename = "smi-ted-Light_40.pt"
-    file_path = hf_hub_download(repo_id=repo_id, filename=filename)
+    local_checkpoint = os.path.join(folder, ckpt_filename)
+    if os.path.isfile(local_checkpoint):
+        file_path = local_checkpoint
+    else:
+        file_path = hf_hub_download(
+            repo_id="ibm/materials.smi-ted",
+            filename=ckpt_filename,
+        )
     model.load_checkpoint(file_path)
     model.eval()
     # print('Vocab size:', len(tokenizer.vocab))
     # print(f'[INFERENCE MODE - {str(model)}]')
     return model
-
 
