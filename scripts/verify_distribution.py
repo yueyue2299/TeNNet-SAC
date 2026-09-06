@@ -1,6 +1,7 @@
 """Validate release archives contain the package bundle and no repository debris."""
 
 import argparse
+import re
 import sys
 import tarfile
 import zipfile
@@ -32,23 +33,42 @@ CHECKPOINTS = {
 }
 
 
-def _normalized_member(name: str) -> str:
-    """Return a portable archive path without an accidental leading slash."""
-    return str(PurePosixPath(name.replace("\\", "/").lstrip("/")))
+def _normalized_member(name: str) -> tuple[str, list[str]]:
+    """Return a portable archive path and errors that must survive normalization."""
+    member = name.replace("\\", "/")
+    errors = []
+    if not member:
+        errors.append("unsafe archive member (empty path)")
+    elif member.startswith("/"):
+        errors.append(f"unsafe archive member (absolute path): {name}")
+    elif re.match(r"^[A-Za-z]:", member):
+        errors.append(f"unsafe archive member (drive-qualified path): {name}")
+    if ".." in member.split("/"):
+        errors.append(f"unsafe archive member (parent traversal): {name}")
+    return str(PurePosixPath(member)), errors
 
 
-def _sdist_members(names: list[str]) -> tuple[list[str], list[str]]:
-    """Remove an sdist's required single top-level directory."""
-    paths = [_normalized_member(name) for name in names]
+def _normalized_members(names: list[str]) -> tuple[list[str], list[str]]:
+    members = []
+    errors = []
+    for name in names:
+        member, member_errors = _normalized_member(name)
+        members.append(member)
+        errors.extend(member_errors)
+    return members, errors
+
+
+def _sdist_members(paths: list[str]) -> tuple[list[str], list[str]]:
+    """Remove per-member root directories while reporting malformed root layouts."""
     roots = {PurePosixPath(path).parts[0] for path in paths if path not in {"", "."}}
+    errors = []
     if len(roots) != 1:
-        return paths, ["sdist must use one top-level directory"]
-    root = roots.pop()
+        errors.append("sdist must use one top-level directory")
     stripped = []
     for path in paths:
         parts = PurePosixPath(path).parts
-        stripped.append(str(PurePosixPath(*parts[1:])) if parts and parts[0] == root else path)
-    return stripped, []
+        stripped.append(str(PurePosixPath(*parts[1:])) if parts else path)
+    return stripped, errors
 
 
 def _required_members(kind: str) -> set[str]:
@@ -63,9 +83,18 @@ def _required_members(kind: str) -> set[str]:
 
 
 def _has_required_member(kind: str, members: set[str], required: str) -> bool:
-    if required == "METADATA":
-        return any(member.endswith(".dist-info/METADATA") for member in members)
     return required in members
+
+
+def _wheel_metadata_members(members: set[str]) -> list[str]:
+    return [
+        member
+        for member in members
+        if (parts := PurePosixPath(member).parts)
+        and len(parts) == 2
+        and parts[1] == "METADATA"
+        and re.fullmatch(r"tennetsac-.+\.dist-info", parts[0])
+    ]
 
 
 def _inspect_members(kind: str, members: list[str]) -> list[str]:
@@ -99,28 +128,38 @@ def _inspect_members(kind: str, members: list[str]) -> list[str]:
 def verify_archive(path: Path) -> list[str]:
     """Return every validation failure for a wheel or source distribution."""
     path = Path(path)
+    root_errors = []
     if path.suffix == ".whl":
         kind = "wheel"
         try:
             with zipfile.ZipFile(path) as archive:
-                members = [_normalized_member(name) for name in archive.namelist()]
+                members, path_errors = _normalized_members(archive.namelist())
         except (FileNotFoundError, zipfile.BadZipFile) as error:
             return [f"cannot read wheel: {error}"]
     else:
         kind = "sdist"
         try:
             with tarfile.open(path, "r:*") as archive:
+                raw_members = [member.name for member in archive.getmembers()]
+                normalized_members, path_errors = _normalized_members(raw_members)
                 members, root_errors = _sdist_members(
-                    [member.name for member in archive.getmembers()]
+                    normalized_members
                 )
         except (FileNotFoundError, tarfile.TarError) as error:
             return [f"cannot read sdist: {error}"]
-        if root_errors:
-            return root_errors
 
-    errors = _inspect_members(kind, members)
+    errors = [*path_errors, *root_errors, *_inspect_members(kind, members)]
     member_set = set(members)
     for required in sorted(_required_members(kind)):
+        if required == "METADATA":
+            metadata_members = _wheel_metadata_members(member_set)
+            if not metadata_members:
+                errors.append("missing required member: METADATA")
+            elif len(metadata_members) != 1:
+                errors.append(
+                    "expected exactly one tennetsac dist-info METADATA member"
+                )
+            continue
         if not _has_required_member(kind, member_set, required):
             errors.append(f"missing required member: {required}")
     return errors

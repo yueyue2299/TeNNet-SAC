@@ -31,15 +31,19 @@ def _sdist_members():
     yield f"{root}/PKG-INFO"
 
 
-def _write_wheel(path: Path, members=()):
+def _write_wheel(path: Path, members=(), required_members=None):
+    if required_members is None:
+        required_members = _wheel_members()
     with zipfile.ZipFile(path, "w") as archive:
-        for member in [*_wheel_members(), *members]:
+        for member in [*required_members, *members]:
             archive.writestr(member, "fixture")
 
 
-def _write_sdist(path: Path, members=()):
+def _write_sdist(path: Path, members=(), required_members=None):
+    if required_members is None:
+        required_members = _sdist_members()
     with tarfile.open(path, "w:gz") as archive:
-        for member in [*_sdist_members(), *members]:
+        for member in [*required_members, *members]:
             payload = b"fixture"
             info = tarfile.TarInfo(member)
             info.size = len(payload)
@@ -83,37 +87,93 @@ def test_verify_archive_rejects_forbidden_members(tmp_path, suffix, writer, bad_
 
 
 @pytest.mark.parametrize(
-    ("suffix", "writer", "expected_member"),
+    ("suffix", "writer", "required", "expected_member"),
     [
-        (".whl", _write_wheel, "tennetsac/model_manifest.json"),
-        (".tar.gz", _write_sdist, "src/tennetsac/model_manifest.json"),
+        *[
+            (".whl", _write_wheel, member, member.rsplit("/", 1)[-1])
+            if member.endswith(".dist-info/METADATA")
+            else (".whl", _write_wheel, member, member)
+            for member in _wheel_members()
+        ],
+        *[
+            (".tar.gz", _write_sdist, member, member.split("/", 1)[1])
+            for member in _sdist_members()
+        ],
     ],
 )
-def test_verify_archive_requires_model_bundle_and_metadata(
-    tmp_path, suffix, writer, expected_member
+def test_verify_archive_requires_every_model_resource_and_metadata(
+    tmp_path, suffix, writer, required, expected_member
 ):
     archive = tmp_path / f"tennetsac-0.1.10{suffix}"
-    writer(archive)
-    if suffix == ".whl":
-        members = list(_wheel_members())
-    else:
-        members = list(_sdist_members())
-    members.remove(members[[member.endswith(expected_member) for member in members].index(True)])
-    if suffix == ".whl":
-        with zipfile.ZipFile(archive, "w") as built:
-            for member in members:
-                built.writestr(member, "fixture")
-    else:
-        with tarfile.open(archive, "w:gz") as built:
-            for member in members:
-                payload = b"fixture"
-                info = tarfile.TarInfo(member)
-                info.size = len(payload)
-                built.addfile(info, io.BytesIO(payload))
+    members = list(_wheel_members() if suffix == ".whl" else _sdist_members())
+    members.remove(required)
+    writer(archive, required_members=members)
 
     errors = verify_archive(archive)
 
     assert any(expected_member in error for error in errors)
+
+
+def test_wheel_rejects_unrelated_distribution_metadata(tmp_path):
+    archive = tmp_path / "tennetsac-0.1.10.whl"
+    members = [
+        member for member in _wheel_members() if not member.endswith(".dist-info/METADATA")
+    ]
+    _write_wheel(
+        archive,
+        ["unrelated-1.0.dist-info/METADATA"],
+        required_members=members,
+    )
+
+    assert "missing required member: METADATA" in verify_archive(archive)
+
+
+def test_wheel_rejects_multiple_tennetsac_metadata_files(tmp_path):
+    archive = tmp_path / "tennetsac-0.1.10.whl"
+    _write_wheel(archive, ["tennetsac-2.0.dist-info/METADATA"])
+
+    assert "expected exactly one tennetsac dist-info METADATA member" in verify_archive(
+        archive
+    )
+
+
+@pytest.mark.parametrize(
+    ("suffix", "writer", "bad_member", "reason"),
+    [
+        (".whl", _write_wheel, "/tests/escape.py", "absolute path"),
+        (".whl", _write_wheel, "\\\\tests\\\\escape.py", "absolute path"),
+        (".whl", _write_wheel, "C:\\tests\\escape.py", "drive-qualified path"),
+        (".whl", _write_wheel, "tennetsac\\..\\tests\\escape.py", "parent traversal"),
+        (".whl", _write_wheel, "", "empty path"),
+        (".tar.gz", _write_sdist, "/tests/escape.py", "absolute path"),
+        (".tar.gz", _write_sdist, "\\\\tests\\\\escape.py", "absolute path"),
+        (".tar.gz", _write_sdist, "C:\\tests\\escape.py", "drive-qualified path"),
+        (".tar.gz", _write_sdist, "root\\..\\tests\\escape.py", "parent traversal"),
+        (".tar.gz", _write_sdist, "", "empty path"),
+    ],
+)
+def test_verify_archive_rejects_unsafe_member_paths(
+    tmp_path, suffix, writer, bad_member, reason
+):
+    archive = tmp_path / f"tennetsac-0.1.10{suffix}"
+    writer(archive, [bad_member])
+
+    assert any(reason in error for error in verify_archive(archive))
+
+
+def test_malformed_sdist_reports_root_forbidden_and_missing_errors(tmp_path):
+    archive = tmp_path / "tennetsac-0.1.10.tar.gz"
+    _write_sdist(
+        archive,
+        ["root-a/tests/test_runtime.py", "root-b/src/tennetsac/model_manifest.json"],
+        required_members=[],
+    )
+
+    errors = verify_archive(archive)
+
+    assert "sdist must use one top-level directory" in errors
+    assert "forbidden archive member: tests/test_runtime.py" in errors
+    assert "missing required member: src/tennetsac/smi_ted_light/bert_vocab_curated.txt" in errors
 
 
 @pytest.mark.parametrize(

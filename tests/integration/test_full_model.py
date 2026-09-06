@@ -19,16 +19,30 @@ def _require_local_models(monkeypatch):
     if not checkpoint.is_file():
         pytest.skip("TENNETSAC_SMI_TED_CHECKPOINT does not name a local checkpoint")
 
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+
     from huggingface_hub import try_to_load_from_cache
+    from transformers import RobertaModel, RobertaTokenizer
 
     config = try_to_load_from_cache(
         CHEMBERTA_REPO, "config.json", revision=CHEMBERTA_REVISION
     )
     if not isinstance(config, str):
         pytest.skip("ChemBERTa2 is not cached at the pinned revision")
-
-    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
-    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+    try:
+        RobertaTokenizer.from_pretrained(
+            CHEMBERTA_REPO,
+            revision=CHEMBERTA_REVISION,
+            local_files_only=True,
+        )
+        RobertaModel.from_pretrained(
+            CHEMBERTA_REPO,
+            revision=CHEMBERTA_REVISION,
+            local_files_only=True,
+        )
+    except OSError:
+        pytest.skip("ChemBERTa2 cache is incomplete at the pinned revision")
 
 
 def test_full_runtime_outputs_are_finite(monkeypatch):
