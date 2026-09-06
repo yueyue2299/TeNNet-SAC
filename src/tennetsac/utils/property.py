@@ -1,7 +1,7 @@
 import torch
 import numpy as np
-from utils.embedding import get_input_embeddings
-from utils.smiles import compute_mol_weight
+from .embedding import get_input_embeddings
+from .smiles import compute_mol_weight
 
 def get_sigma_profile(smiles, prf_model, geometry_model, cb_embedder, st_embedder):
     st_emb, cb_emb = get_input_embeddings(smiles, cb_embedder, st_embedder)
@@ -48,141 +48,6 @@ def compute_SG_combinatorial_term(x, areas, volumes):
 
     return lngc
 
-
-def calc_ln_gamma(smiles_list, mole_fraction_list, temperature, gamma_predictors, get_sigma_profile_fn):
-    """
-    Calculate the natural logarithm of the activity coefficient (ln gamma) 
-    and its standard deviation using an ensemble of gamma predictors.
-    """
-    if temperature <= 0:
-        raise ValueError(f"Temperature must be greater than 0 K. Got: {temperature}")
-    aeff = 5.8447  # A2
-    num_components = len(smiles_list)
-    
-    # Convert temperature to a PyTorch tensor
-    t_tensor = torch.tensor([temperature], dtype=torch.float32)
-    
-    if len(mole_fraction_list) == num_components - 1:
-        last_mf = 1.0 - sum(mole_fraction_list)
-        if last_mf < 0 or last_mf > 1:
-            raise ValueError(f"Invalid mole fractions: sum exceeds 1.0 → sum = {sum(mole_fraction_list):.4f}")
-        mole_fraction_list = mole_fraction_list + [last_mf]
-    elif len(mole_fraction_list) != num_components:
-        raise ValueError(f"Length mismatch: {num_components} SMILES vs {len(mole_fraction_list)} mole fractions.\n"
-                        f"Expected mole_fraction_list to have {num_components - 1} or {num_components} items.")
-    elif len(mole_fraction_list) == num_components:
-        mf_sum = sum(mole_fraction_list)
-        if abs(mf_sum - 1.0) > 1e-6:
-            raise ValueError(f"Mole fractions must sum to 1.0, but got {mf_sum:.6f}")
-    
-    sigma_profiles = []
-    areas = []
-    volumes = []
-
-    for smiles in smiles_list:
-        sigma, area, volume = get_sigma_profile_fn(smiles)
-        sigma = sigma.clone().detach()
-        sigma_profiles.append(sigma)
-        areas.append(area)
-        volumes.append(volume)
-
-    # Combinatorial term is geometric and independent of the predictor model
-    ln_gamma_comb_array = np.array(compute_SG_combinatorial_term(mole_fraction_list, areas, volumes))
-    sigma_mix = sum(xi * sigma for xi, sigma in zip(mole_fraction_list, sigma_profiles))
-    
-    all_models_ln_gamma = []
-
-    for predictor in gamma_predictors:
-        # Pass t_tensor and extract the [1] index
-        segacs_pure = [predictor(sigma, t_tensor)[1] for sigma in sigma_profiles]
-        segac_mix = predictor(sigma_mix, t_tensor)[1]
-
-        ln_gamma_res_list = []
-        for i in range(num_components):
-            p_i = sigma_profiles[i] / areas[i]
-            delta_ln = segac_mix - segacs_pure[i]
-            # Calculate residual part
-            ln_gamma_res = areas[i] / aeff * torch.sum(p_i * delta_ln).item()
-            ln_gamma_res_list.append(ln_gamma_res)
-
-        ln_gamma_res_array = np.array(ln_gamma_res_list)
-        all_models_ln_gamma.append(ln_gamma_comb_array + ln_gamma_res_array)
-        
-    all_models_ln_gamma = np.array(all_models_ln_gamma)
-    
-    ln_gamma_mean = np.mean(all_models_ln_gamma, axis=0)
-    ln_gamma_std = np.std(all_models_ln_gamma, axis=0)
-    
-    return ln_gamma_mean, ln_gamma_std
-
-def calc_ln_gamma_binary(smiles_1, smiles_2, x1_list, temperature,
-                                  gamma_predictors, get_sigma_profile_fn):
-    """
-    Calculate the binary mixture ln gamma and standard deviation 
-    across a range of mole fractions using an ensemble of models.
-    """
-    if temperature <= 0:
-        raise ValueError(f"Temperature must be greater than 0 K. Got: {temperature}")
-    aeff = 5.8447  # A²
-
-    # Convert temperature to a PyTorch tensor
-    t_tensor = torch.tensor([temperature], dtype=torch.float32)
-
-    sigma_1, area_1, vol_1 = get_sigma_profile_fn(smiles_1)
-    sigma_2, area_2, vol_2 = get_sigma_profile_fn(smiles_2)
-    sigma_1 = sigma_1.clone().detach()
-    sigma_2 = sigma_2.clone().detach()
-
-    p_1 = sigma_1 / area_1
-    p_2 = sigma_2 / area_2
-
-    # Pre-calculate pure component segac for each model in the ensemble
-    # Pass t_tensor and extract the [1] index
-    segacs_1_pure = [predictor(sigma_1, t_tensor)[1] for predictor in gamma_predictors]
-    segacs_2_pure = [predictor(sigma_2, t_tensor)[1] for predictor in gamma_predictors]
-
-    num_models = len(gamma_predictors)
-    all_models_ln_gamma_1 = {i: [] for i in range(num_models)}
-    all_models_ln_gamma_2 = {i: [] for i in range(num_models)}
-
-    for x1 in x1_list:
-        x2 = 1.0 - x1
-
-        # combinatorial part
-        ln_gamma_comb_1, ln_gamma_comb_2 = compute_SG_combinatorial_term(
-            [x1, x2], [area_1, area_2], [vol_1, vol_2]
-        )
-
-        sigma_mix = x1 * sigma_1 + x2 * sigma_2
-
-        for i, predictor in enumerate(gamma_predictors):
-            # Pass t_tensor and extract the [1] index
-            segac_mix = predictor(sigma_mix, t_tensor)[1]
-
-            # residual part
-            delta_ln_1 = segac_mix - segacs_1_pure[i]
-            delta_ln_2 = segac_mix - segacs_2_pure[i]
-            
-            # Using detach().numpy() if the outputs still have gradients attached
-            ln_gamma_res_1 = area_1 / aeff * torch.sum(p_1 * delta_ln_1).item()
-            ln_gamma_res_2 = area_2 / aeff * torch.sum(p_2 * delta_ln_2).item()
-
-            # total ln gamma
-            all_models_ln_gamma_1[i].append(ln_gamma_comb_1 + ln_gamma_res_1)
-            all_models_ln_gamma_2[i].append(ln_gamma_comb_2 + ln_gamma_res_2)
-
-    arr_1 = np.array([all_models_ln_gamma_1[i] for i in range(num_models)])
-    arr_2 = np.array([all_models_ln_gamma_2[i] for i in range(num_models)])
-
-    ln_gamma_1_mean = np.mean(arr_1, axis=0)
-    ln_gamma_1_std = np.std(arr_1, axis=0)
-    
-    ln_gamma_2_mean = np.mean(arr_2, axis=0)
-    ln_gamma_2_std = np.std(arr_2, axis=0)
-
-    return ln_gamma_1_mean, ln_gamma_2_mean, ln_gamma_1_std, ln_gamma_2_std
-
-"""
 def ensemble_segac(models, sigma, temperature):
     sigma = sigma.clone().detach().requires_grad_(True)
     segac_list = []
@@ -294,5 +159,3 @@ def calc_ln_gamma_binary(smiles_1, smiles_2, x1_list, temperature,
         ln_gamma_2_list.append(ln_gamma_2)
 
     return np.array(ln_gamma_1_list), np.array(ln_gamma_2_list)
-
-"""

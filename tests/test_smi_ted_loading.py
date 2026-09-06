@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from smi_ted_light import load as smi_ted_load
+from tennetsac.smi_ted_light import load as smi_ted_load
 
 
 class FakeSmiTed:

@@ -2,10 +2,16 @@ from pathlib import Path
 
 import pytest
 
-from smi_ted_light.load import MolTranBertTokenizer
+from tennetsac.smi_ted_light.tokenizer import MolTranBertTokenizer
 
 
-VOCAB_PATH = Path(__file__).parents[1] / "smi_ted_light" / "bert_vocab_curated.txt"
+VOCAB_PATH = (
+    Path(__file__).parents[1]
+    / "src"
+    / "tennetsac"
+    / "smi_ted_light"
+    / "bert_vocab_curated.txt"
+)
 
 
 @pytest.fixture
