@@ -1,4 +1,7 @@
+import hashlib
 from pathlib import Path
+
+import pytest
 
 from tennetsac.smi_ted_light import load as smi_ted_load
 
@@ -63,3 +66,61 @@ def test_load_smi_ted_downloads_the_requested_checkpoint_name(tmp_path, monkeypa
 
     assert calls == [{"repo_id": "ibm/materials.smi-ted", "filename": "custom.pt"}]
     assert model.loaded_checkpoint == downloaded
+
+
+def test_load_smi_ted_forwards_pinned_repository_revision(tmp_path, monkeypatch):
+    vocab = tmp_path / "vocab.txt"
+    vocab.write_text("<bos>\n<eos>\n<pad>\n<mask>\nC\n", encoding="utf-8")
+    downloaded = tmp_path / "downloaded.pt"
+    downloaded.touch()
+    calls = []
+
+    monkeypatch.setattr(smi_ted_load, "Smi_ted", FakeSmiTed)
+    monkeypatch.setattr(
+        smi_ted_load,
+        "hf_hub_download",
+        lambda **kwargs: calls.append(kwargs) or str(downloaded),
+    )
+
+    smi_ted_load.load_smi_ted(
+        folder=tmp_path,
+        repo_id="ibm/materials.smi-ted",
+        revision="414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
+        ckpt_filename="smi-ted-Light_40.pt",
+        vocab_filename=vocab.name,
+    )
+
+    assert calls == [{
+        "repo_id": "ibm/materials.smi-ted",
+        "filename": "smi-ted-Light_40.pt",
+        "revision": "414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
+    }]
+
+
+def test_load_smi_ted_rejects_a_local_checkpoint_with_wrong_digest(tmp_path, monkeypatch):
+    vocab = tmp_path / "vocab.txt"
+    vocab.write_text("<bos>\n<eos>\n<pad>\n<mask>\nC\n", encoding="utf-8")
+    checkpoint = tmp_path / "smi-ted-Light_40.pt"
+    checkpoint.write_bytes(b"incorrect checkpoint")
+    expected = "baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375"
+    actual = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+
+    monkeypatch.setattr(
+        smi_ted_load.torch,
+        "load",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("torch.load must not run for a mismatched checkpoint")
+        ),
+    )
+
+    with pytest.raises(ValueError) as error:
+        smi_ted_load.load_smi_ted(
+            folder=tmp_path,
+            ckpt_filename=checkpoint.name,
+            vocab_filename=vocab.name,
+            expected_sha256=expected,
+        )
+
+    assert str(error.value) == (
+        f"SHA256 mismatch for smi-ted-Light_40.pt: expected {expected}, got {actual}"
+    )

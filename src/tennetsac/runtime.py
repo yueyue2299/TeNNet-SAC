@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.resources import as_file, files
+import os
 from pathlib import Path
 from shutil import copyfile
 from tempfile import TemporaryDirectory
@@ -63,17 +64,67 @@ def _checkpoint_path(root):
         yield checkpoint_path
 
 
+@contextmanager
+def _smi_ted_vocab_dir():
+    vocab = files("tennetsac").joinpath(
+        "smi_ted_light", "bert_vocab_curated.txt"
+    )
+    if not vocab.is_file():
+        raise FileNotFoundError(
+            "Missing packaged SMI-TED vocabulary under "
+            "tennetsac/smi_ted_light/bert_vocab_curated.txt"
+        )
+    with as_file(vocab) as path:
+        yield path.parent
+
+
 def _build_runtime() -> Runtime:
     from .models.Emb2Geometry import GeometryGenerator
     from .models.Emb2Profile import SigmaProfileGenerator
     from .models.Prf2Gamma import Prf_to_Seg_Model
     from .utils.embedding import ChemBERTaEmbedder, SMITEDEmbedder
     from .utils.model_io import load_all_Gamma_models, load_model
+    from .model_manifest import external_model
 
     with _checkpoint_path(_checkpoint_root()) as checkpoint_root:
+        chemberta = external_model("chemberta2")
+        smi_ted = external_model("smi-ted-light")
+        try:
+            chemberta_embedder = ChemBERTaEmbedder(
+                model_name=chemberta["source"], revision=chemberta["revision"]
+            )
+        except Exception as error:
+            raise RuntimeError("Failed to initialize ChemBERTa2 embedder") from error
+        try:
+            checkpoint_override = os.environ.get("TENNETSAC_SMI_TED_CHECKPOINT")
+            if checkpoint_override:
+                checkpoint_path = Path(checkpoint_override)
+                if not checkpoint_path.is_file():
+                    raise FileNotFoundError(
+                        "TENNETSAC_SMI_TED_CHECKPOINT must name a file: "
+                        f"{checkpoint_path}"
+                    )
+                smi_ted_embedder = SMITEDEmbedder(
+                    model_dir=checkpoint_path.parent,
+                    repo_id=smi_ted["source"],
+                    revision=smi_ted["revision"],
+                    ckpt_name=checkpoint_path.name,
+                    expected_sha256=smi_ted["sha256"],
+                )
+            else:
+                with _smi_ted_vocab_dir() as vocab_dir:
+                    smi_ted_embedder = SMITEDEmbedder(
+                        model_dir=vocab_dir,
+                        repo_id=smi_ted["source"],
+                        revision=smi_ted["revision"],
+                        ckpt_name=smi_ted["filename"],
+                        expected_sha256=smi_ted["sha256"],
+                    )
+        except Exception as error:
+            raise RuntimeError("Failed to initialize SMI-TED embedder") from error
         return Runtime(
-            chemberta_embedder=ChemBERTaEmbedder(),
-            smi_ted_embedder=SMITEDEmbedder(),
+            chemberta_embedder=chemberta_embedder,
+            smi_ted_embedder=smi_ted_embedder,
             profile_model=load_model(
                 SigmaProfileGenerator(), checkpoint_root / "prf.ckpt"
             ),

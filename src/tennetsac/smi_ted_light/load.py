@@ -28,6 +28,7 @@ PandasTools.RenderImagesInAllDataFrames(True)
 
 # Standard library
 from functools import partial
+import hashlib
 import random
 import os
 import gc
@@ -611,9 +612,20 @@ class Smi_ted(nn.Module):
         return 'smi-ted-Light'
     
 
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def load_smi_ted(folder="./smi_ted_light", 
+              repo_id="ibm/materials.smi-ted",
+              revision=None,
               ckpt_filename="smi-ted-Light_40.pt",
-              vocab_filename="bert_vocab_curated.txt"
+              vocab_filename="bert_vocab_curated.txt",
+              expected_sha256=None,
               ):
     tokenizer = MolTranBertTokenizer(os.path.join(folder, vocab_filename))
     model = Smi_ted(tokenizer)
@@ -622,13 +634,19 @@ def load_smi_ted(folder="./smi_ted_light",
     if os.path.isfile(local_checkpoint):
         file_path = local_checkpoint
     else:
-        file_path = hf_hub_download(
-            repo_id="ibm/materials.smi-ted",
-            filename=ckpt_filename,
-        )
+        download_args = {"repo_id": repo_id, "filename": ckpt_filename}
+        if revision is not None:
+            download_args["revision"] = revision
+        file_path = hf_hub_download(**download_args)
+    if expected_sha256 is not None:
+        actual_sha256 = _sha256(file_path)
+        if actual_sha256 != expected_sha256:
+            raise ValueError(
+                f"SHA256 mismatch for {ckpt_filename}: expected {expected_sha256}, "
+                f"got {actual_sha256}"
+            )
     model.load_checkpoint(file_path)
     model.eval()
     # print('Vocab size:', len(tokenizer.vocab))
     # print(f'[INFERENCE MODE - {str(model)}]')
     return model
-

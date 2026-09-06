@@ -1,13 +1,12 @@
-import os
 from transformers import RobertaModel, RobertaTokenizer
 from .smiles import canonicalize_smiles, compute_mol_weight
 import torch
 
 # === ChemBERTa2 Embedding  ===
 class ChemBERTaEmbedder:
-    def __init__(self, model_name="DeepChem/ChemBERTa-77M-MLM", max_length=128, device="cpu"):
-        self.tokenizer = RobertaTokenizer.from_pretrained(model_name)
-        self.model = RobertaModel.from_pretrained(model_name).to(device)
+    def __init__(self, model_name, revision, max_length=128, device="cpu"):
+        self.tokenizer = RobertaTokenizer.from_pretrained(model_name, revision=revision)
+        self.model = RobertaModel.from_pretrained(model_name, revision=revision).to(device)
         self.max_length = max_length
         self.device = device
 
@@ -27,10 +26,14 @@ class ChemBERTaEmbedder:
 from ..smi_ted_light.load import load_smi_ted
 
 class SMITEDEmbedder:
-    def __init__(self, ckpt_name="smi-ted-Light_40.pt", device="cpu"):
-        here = os.path.dirname(os.path.dirname(__file__))
-        model_dir = os.path.join(here, "smi_ted_light")
-        self.model = load_smi_ted(folder=model_dir, ckpt_filename=ckpt_name).to(device)
+    def __init__(self, model_dir, repo_id, revision, ckpt_name, expected_sha256, device="cpu"):
+        self.model = load_smi_ted(
+            folder=model_dir,
+            repo_id=repo_id,
+            revision=revision,
+            ckpt_filename=ckpt_name,
+            expected_sha256=expected_sha256,
+        ).to(device)
         self.device = device
 
     def __call__(self, smiles):
