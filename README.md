@@ -21,7 +21,7 @@ This project provides:
 
 ## Installation via PyPI
 
-If you only need to use TeNNet-SAC, we recommand installing it directly from PyPI.
+If you only need to use TeNNet-SAC, install the published package from PyPI.
 
 Create a new environment and install the package:
 
@@ -30,7 +30,7 @@ conda create -n tsac_env python=3.10 -y
 conda activate tsac_env
 pip install tennetsac
 ```
-Once installed, you can directly import and use TeNNet-SAC in Python:
+Once installed, import the public API directly:
 
 ```python
 from tennetsac import profile, binary_lng, multi_lng
@@ -94,14 +94,15 @@ plot_nrtl_fitting("CCO", "ClCCCl", nrtl_results)
 
 ## Installation from Source
 
-If you want to modify or develop TeNNet-SAC locally, clone the repository and build from source:
+If you want to modify or develop TeNNet-SAC locally, clone the release source on GitHub and install its development extras:
 
 ```bash
 git clone https://github.com/yueyue2299/TeNNet-SAC.git
 cd TeNNet-SAC
+pip install -e ".[dev]"
 ```
 
-Create and activate the conda environment:
+Alternatively, create the supplied CPU/GPU-ready conda environment, which installs this local package through pip:
 
 ```bash
 conda env create -f TeNNet-SAC.yml
@@ -110,7 +111,7 @@ conda activate TeNNet-SAC
 
 ## Usage
 
-You can use the [`TeNNetSAC.ipynb`](./TeNNetSAC.ipynb) notebook locally, or try it directly on Google Colab:
+You can use the [`examples/TeNNetSAC.ipynb`](./examples/TeNNetSAC.ipynb) notebook locally, or try it directly on Google Colab:
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Xh1BT-ok73La7AQbjjVSwsRjf6q3JiGx?usp=sharing)
 
@@ -120,17 +121,19 @@ This notebook demonstrates how to:
 - Predict **activity coefficients** for both binary and multicomponent mixtures  
   - You can choose between the **Base model** (trained on COSMO-SAC data) and the **Fine-tuned model** (refined with experimental data)
 
+Importing `tennetsac` does not initialize the models. The packaged models and external embedders initialize on the first prediction call, so that call may download model files when they are not already cached.
+
+For this release, ChemBERTa2 and SMI-TED are revision-pinned external downloads. The future offline ChemBERTa2 location, `src/tennetsac/assets/chemberta2/`, is reserved but intentionally empty. Package versions are derived from Git tags; GitHub is the release source.
+
 ## Project Structure
 
 | File/Folder        | Description                                              |
 |--------------------|----------------------------------------------------------|
 | `TeNNet-SAC.yml`     | Conda environment configuration                          |
-| `requirements.txt` | pip-style dependency list                                |
-| `TeNNetSAC.ipynb`    | Example notebook demonstrating model usage               |
-| `ckpt_files`       | Directory for check point files                          |
-| `models`           | Directory containing σ-profile, geometry and Γ predictor |
-| `smi_ted_light`    | SMI-TED project (external module)                        |
-| `utils`            | Utility functions used across the project                |
+| `requirements.txt` | Development install entry point (`-e .[dev]`)            |
+| `examples/TeNNetSAC.ipynb` | Example notebook using the public package API     |
+| `src/tennetsac`   | Installable package, packaged checkpoints, and utilities |
+| `src/tennetsac/assets/chemberta2/` | Reserved, currently empty offline ChemBERTa2 location |
 | `README.md`        | Project readme                                           |
 
 ## Citation
@@ -154,7 +157,7 @@ Soares, E.; Shirasuna, V.; Brazil, E. V.; Cerqueira, R.; Zubarev, D.; Schmidt, K
 
 ### External Code Acknowledgment
 
-The folder `smi_ted_light/` is adapted from the [SMI-TED](https://github.com/IBM/materials/tree/main/models/smi_ted) repository by Soares et al., with only minimal modifications. The core implementation remains unchanged. Full credit goes to the original authors.
+The packaged `src/tennetsac/smi_ted_light/` support code is adapted from the [SMI-TED](https://github.com/IBM/materials/tree/main/models/smi_ted) repository by Soares et al., with only minimal modifications. The SMI-TED model weights themselves are revision-pinned external downloads. Full credit goes to the original authors.
 
 ## License
 
