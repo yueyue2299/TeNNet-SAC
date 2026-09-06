@@ -1,64 +1,31 @@
-# === Standard Library ===
-import os
-import warnings
 from typing import List, Tuple
 
-# === Computing & Visualization ===
-import torch
-
-# === Warning Suppression ===
-from tqdm import TqdmWarning
-warnings.simplefilter("ignore", category=TqdmWarning)
-warnings.filterwarnings("ignore", message="TypedStorage is deprecated")
-warnings.filterwarnings("ignore", category=FutureWarning)
-warnings.filterwarnings("ignore", message="Some weights of RobertaModel were not initialized")
-from transformers.utils import logging
-logging.set_verbosity_error()
-
-# === Model Architectures ===
-from .models.Emb2Profile import SigmaProfileGenerator
-from .models.Emb2Geometry import GeometryGenerator
-from .models.Prf2Gamma import Prf_to_Seg_Model
-
-# === Model Loading ===
-from .utils.model_io import load_model, load_all_Gamma_models
-
-# === Embedding Extraction ===
-from .utils.embedding import ChemBERTaEmbedder, SMITEDEmbedder
-
-# === Computation ===
-from .utils.property import get_sigma_profile, calc_ln_gamma, ensemble_segac, calc_ln_gamma_binary
-
-# === Fitting ===
-from scipy.optimize import least_squares
 import numpy as np
-
-# === Plotting ===
-import matplotlib.pyplot as plt
-
-# === Embedding models ===
-cb_emb = ChemBERTaEmbedder()
-st_emb = SMITEDEmbedder()
-
-# === Load checkpoints ===
-here = os.path.dirname(__file__)
-ckpt_path = os.path.join(here, "ckpt_files")
-
-prf_model = load_model(SigmaProfileGenerator(), os.path.join(ckpt_path, "prf.ckpt"))
-geometry_model = load_model(GeometryGenerator(), os.path.join(ckpt_path, "geo.ckpt"))
-Gamma_base_model = load_model(Prf_to_Seg_Model(), os.path.join(ckpt_path, "base.ckpt"))
-
-Gamma_finetuned_models = load_all_Gamma_models(Prf_to_Seg_Model, os.path.join(ckpt_path, "fine-tuned"))
+from .runtime import get_runtime
 
 # === Define functions ===
 def sigma_profile_wrapper(smiles):
-    return get_sigma_profile(smiles, prf_model, geometry_model, cb_emb, st_emb)
+    from .utils.property import get_sigma_profile
+
+    runtime = get_runtime()
+    return get_sigma_profile(
+        smiles,
+        runtime.profile_model,
+        runtime.geometry_model,
+        runtime.chemberta_embedder,
+        runtime.smi_ted_embedder,
+    )
 
 def single_model_predictor(sigma, temperature):
-    return Gamma_base_model(sigma, torch.tensor([temperature]))[1]
+    import torch
+
+    model = get_runtime().gamma_base_model
+    return model(sigma, torch.tensor([temperature]))[1]
 
 def ensemble_predictor(sigma, temperature):
-    return ensemble_segac(Gamma_finetuned_models, sigma, temperature)
+    from .utils.property import ensemble_segac
+
+    return ensemble_segac(get_runtime().gamma_finetuned_models, sigma, temperature)
 
 def select_gamma_predictor(model_type: str):
     if model_type == "base":
@@ -110,6 +77,8 @@ def binary_lng(smiles: List[str], temperature: float, molefraction: List[float],
     if not isinstance(smiles, list) or len(smiles) != 2:
         raise ValueError(f"'smiles' must be a list of exactly two SMILES strings, got {smiles}")
 
+    from .utils.property import calc_ln_gamma_binary
+
     gamma_predictor = select_gamma_predictor(version)
 
     ln_gamma_1, ln_gamma_2 = calc_ln_gamma_binary(smiles[0], smiles[1], molefraction, temperature,
@@ -137,6 +106,8 @@ def multi_lng(smiles: List[str], temperature: float, composition: List[float], v
     list[float]
         ln_gamma values for each component.
     """
+
+    from .utils.property import calc_ln_gamma
 
     gamma_predictor = select_gamma_predictor(version)
 
@@ -175,6 +146,8 @@ def fit_nrtl(smiles1, smiles2,
     dict
         NRTL parameters in Kelvin (A12, A21, B12, B21) and error matrices (RMSE, Max_Error)。
     """
+
+    from scipy.optimize import least_squares
 
     if temp_range is None:
         temp_range = [298.15, 313.15, 328.15, 343.15] # 25, 40, 55, 70 °C
@@ -271,6 +244,8 @@ def plot_nrtl_fitting(smiles1, smiles2, fit_result):
     1. Gamma vs Composition (fitting curves at different temperatures)
     2. Parity Plot (prediction accuracy analysis)
     """
+
+    import matplotlib.pyplot as plt
 
     # 1. extract fitting parameters
     p = fit_result['parameters']
