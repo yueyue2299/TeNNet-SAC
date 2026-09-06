@@ -38,7 +38,24 @@ jobs:
       - name: Download release assets
         run: gh release download "$RELEASE_TAG" --dir dist
       - name: Reject unexpected release assets
-        run: python -c 'from pathlib import Path; extras = [p.name for p in Path("dist").iterdir() if p.name != "SHA256SUMS" and p.suffix != ".whl" and not p.name.endswith(".tar.gz")]; assert not extras, extras'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          extras = [
+              path.name
+              for path in Path("dist").iterdir()
+              if (
+                  path.name != "SHA256SUMS"
+                  and path.suffix != ".whl"
+                  and not path.name.endswith(".tar.gz")
+              )
+          ]
+          if extras:
+              raise SystemExit(f"unexpected release assets: {extras}")
+          PY
+      - name: Verify checksum manifest covers downloaded distributions
+        run: python scripts/verify_release_version.py --verify-sha256sums dist/SHA256SUMS dist/*.whl dist/*.tar.gz
       - name: Verify release asset hashes
         run: cd dist && shasum -a 256 -c SHA256SUMS
       - name: Verify release tag matches assets

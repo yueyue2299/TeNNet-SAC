@@ -93,10 +93,12 @@ def test_tokenizer_compatibility_isolated_matrix_and_targeted_test():
 
 def test_release_build_triggers_only_for_version_tags_and_cannot_publish():
     workflow = _named_workflow("release-build.yml")
+    release = workflow["jobs"]["release"]
 
     assert workflow["on"] == {"push": {"tags": ["v*"]}}
-    assert workflow["permissions"] == {"contents": "write"}
+    assert workflow["permissions"] == {"contents": "read"}
     assert "id-token" not in workflow["permissions"]
+    assert release["permissions"] == {"contents": "write"}
 
 
 def test_release_build_reuses_ci_and_constructs_draft_release_once():
@@ -105,6 +107,10 @@ def test_release_build_reuses_ci_and_constructs_draft_release_once():
     release = workflow["jobs"]["release"]
     commands = _run_commands(release)
     command_text = "\n".join(commands)
+    upload = next(
+        step for step in _uses_steps(release)
+        if step["uses"] == "actions/upload-artifact@v4"
+    )
 
     assert ci_job["uses"] == "./.github/workflows/ci.yml"
     assert release["needs"] == ["ci"]
@@ -125,6 +131,11 @@ def test_release_build_reuses_ci_and_constructs_draft_release_once():
         in commands
     )
     assert "cd dist && shasum -a 256 * > SHA256SUMS" in commands
+    assert upload["with"] == {
+        "name": "tennetsac-release-${{ github.ref_name }}",
+        "path": "dist/*.whl\ndist/*.tar.gz\ndist/SHA256SUMS\n",
+        "if-no-files-found": "error",
+    }
     assert (
         'gh release create "$GITHUB_REF_NAME" dist/*.whl dist/*.tar.gz '
         "dist/SHA256SUMS --draft --verify-tag"
@@ -164,17 +175,25 @@ def test_publish_pypi_downloads_verifies_and_publishes_existing_assets_only():
         "python -c 'import os; from scripts.verify_release_version import version_from_tag; "
         'version_from_tag(os.environ["RELEASE_TAG"])\''
     )
+    checksum_manifest_validation = (
+        "python scripts/verify_release_version.py --verify-sha256sums "
+        "dist/SHA256SUMS dist/*.whl dist/*.tar.gz"
+    )
+    unexpected_asset_validation = next(
+        command for command in commands
+        if "unexpected release assets" in command
+    )
 
     assert tag_validation in commands
     assert commands.index(tag_validation) < commands.index(
         'gh release download "$RELEASE_TAG" --dir dist'
     )
     assert 'gh release download "$RELEASE_TAG" --dir dist' in commands
-    assert (
-        "python -c 'from pathlib import Path; extras = [p.name for p in Path(\"dist\").iterdir() "
-        "if p.name != \"SHA256SUMS\" and p.suffix != \".whl\" and not p.name.endswith(\".tar.gz\")]; "
-        "assert not extras, extras'"
-        in commands
+    assert "raise SystemExit" in unexpected_asset_validation
+    assert "assert not extras" not in unexpected_asset_validation
+    assert checksum_manifest_validation in commands
+    assert commands.index(checksum_manifest_validation) < commands.index(
+        "cd dist && shasum -a 256 -c SHA256SUMS"
     )
     assert "cd dist && shasum -a 256 -c SHA256SUMS" in commands
     assert 'python scripts/verify_release_version.py --tag "$RELEASE_TAG" dist/*.whl dist/*.tar.gz' in commands

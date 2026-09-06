@@ -1,6 +1,7 @@
 """Verify release tags and distribution metadata agree exactly."""
 
 import argparse
+import re
 import sys
 import tarfile
 import zipfile
@@ -8,6 +9,9 @@ from email.parser import Parser
 from pathlib import Path, PurePosixPath
 
 from packaging.version import InvalidVersion, Version
+
+
+SHA256SUM_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 def version_from_tag(tag: str) -> str:
@@ -99,12 +103,67 @@ def verify_release_version(tag: str, artifacts) -> list[str]:
     return errors
 
 
+def _sha256sum_entries(manifest: Path) -> tuple[dict[str, str], list[str]]:
+    try:
+        lines = manifest.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        return {}, [f"{manifest}: {error}"]
+
+    entries = {}
+    errors = []
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        parts = line.split(maxsplit=1)
+        if len(parts) != 2 or not SHA256SUM_RE.fullmatch(parts[0]):
+            errors.append(f"{manifest}: malformed checksum line {line_number}")
+            continue
+        name = parts[1].lstrip("*")
+        if not name or "/" in name or "\\" in name or name in {".", ".."}:
+            errors.append(f"{manifest}: unsafe checksum entry name {name}")
+        if name in entries:
+            errors.append(f"{manifest}: duplicate checksum entry for {name}")
+        entries[name] = parts[0].lower()
+    return entries, errors
+
+
+def verify_sha256sums_manifest(manifest, artifacts) -> list[str]:
+    """Verify SHA256SUMS names exactly the downloaded wheel/sdist basenames."""
+    manifest = Path(manifest)
+    artifact_names = {Path(artifact).name for artifact in artifacts}
+    entries, errors = _sha256sum_entries(manifest)
+    entry_names = set(entries)
+
+    missing = sorted(artifact_names - entry_names)
+    if missing:
+        errors.append(
+            f"{manifest}: missing checksum entries for {', '.join(missing)}"
+        )
+    extra = sorted(entry_names - artifact_names)
+    if extra:
+        errors.append(
+            f"{manifest}: checksum entries without downloaded distributions: "
+            f"{', '.join(extra)}"
+        )
+    return errors
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tag", required=True)
+    parser.add_argument("--tag")
+    parser.add_argument("--verify-sha256sums", metavar="SHA256SUMS")
     parser.add_argument("artifacts", nargs="+")
     args = parser.parse_args(argv)
-    errors = verify_release_version(args.tag, args.artifacts)
+    if not args.tag and not args.verify_sha256sums:
+        parser.error("--tag or --verify-sha256sums is required")
+
+    errors = []
+    if args.verify_sha256sums:
+        errors.extend(
+            verify_sha256sums_manifest(args.verify_sha256sums, args.artifacts)
+        )
+    if args.tag:
+        errors.extend(verify_release_version(args.tag, args.artifacts))
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
