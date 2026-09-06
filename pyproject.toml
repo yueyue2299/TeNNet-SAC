@@ -55,6 +55,9 @@ tennetsac = [
   "ckpt_files/fine-tuned/*.ckpt",
 ]
 
+[tool.setuptools.exclude-package-data]
+"*" = ["*.py[cod]", "*.so", "__pycache__/*"]
+
 [tool.setuptools_scm]
 write_to = "src/tennetsac/_version.py"
 version_scheme = "no-guess-dev"

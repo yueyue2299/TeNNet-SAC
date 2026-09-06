@@ -1,0 +1,15 @@
+include LICENSE README.md pyproject.toml
+graft src
+prune .github
+prune docs
+prune examples
+prune scripts
+prune tests
+prune .superpowers
+prune src/tennetsac.egg-info
+exclude src/tennetsac.egg-info/*
+exclude CITATION.bib CITATION.ris
+exclude TeNNet-SAC.yml requirements.txt TrainingSystemsList.csv architecture.png
+exclude .gitignore TeNNetSAC.ipynb
+global-exclude *.py[cod] *.so
+prune src/**/__pycache__

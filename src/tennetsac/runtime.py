@@ -104,13 +104,15 @@ def _build_runtime() -> Runtime:
                         "TENNETSAC_SMI_TED_CHECKPOINT must name a file: "
                         f"{checkpoint_path}"
                     )
-                smi_ted_embedder = SMITEDEmbedder(
-                    model_dir=checkpoint_path.parent,
-                    repo_id=smi_ted["source"],
-                    revision=smi_ted["revision"],
-                    ckpt_name=checkpoint_path.name,
-                    expected_sha256=smi_ted["sha256"],
-                )
+                with _smi_ted_vocab_dir() as vocab_dir:
+                    smi_ted_embedder = SMITEDEmbedder(
+                        model_dir=checkpoint_path.parent,
+                        repo_id=smi_ted["source"],
+                        revision=smi_ted["revision"],
+                        ckpt_name=checkpoint_path.name,
+                        expected_sha256=smi_ted["sha256"],
+                        vocab_filename=vocab_dir / "bert_vocab_curated.txt",
+                    )
             else:
                 with _smi_ted_vocab_dir() as vocab_dir:
                     smi_ted_embedder = SMITEDEmbedder(

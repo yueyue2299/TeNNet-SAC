@@ -58,3 +58,28 @@ def test_smi_ted_embedder_forwards_pinned_checkpoint_provenance(monkeypatch, tmp
         "ckpt_filename": "smi-ted-Light_40.pt",
         "expected_sha256": "baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375",
     }]
+
+
+def test_smi_ted_embedder_uses_a_packaged_vocab_with_external_checkpoint(
+    monkeypatch, tmp_path
+):
+    calls = []
+    vocab = tmp_path / "bert_vocab_curated.txt"
+
+    monkeypatch.setattr(
+        embedding,
+        "load_smi_ted",
+        lambda **kwargs: calls.append(kwargs) or FakeModel(),
+    )
+
+    embedding.SMITEDEmbedder(
+        model_dir=tmp_path / "external-model",
+        repo_id="ibm/materials.smi-ted",
+        revision="414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
+        ckpt_name="smi-ted-Light_40.pt",
+        expected_sha256="baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375",
+        vocab_filename=vocab,
+    )
+
+    assert calls[0]["folder"] == tmp_path / "external-model"
+    assert calls[0]["vocab_filename"] == vocab

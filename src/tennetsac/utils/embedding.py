@@ -26,14 +26,26 @@ class ChemBERTaEmbedder:
 from ..smi_ted_light.load import load_smi_ted
 
 class SMITEDEmbedder:
-    def __init__(self, model_dir, repo_id, revision, ckpt_name, expected_sha256, device="cpu"):
-        self.model = load_smi_ted(
-            folder=model_dir,
-            repo_id=repo_id,
-            revision=revision,
-            ckpt_filename=ckpt_name,
-            expected_sha256=expected_sha256,
-        ).to(device)
+    def __init__(
+        self,
+        model_dir,
+        repo_id,
+        revision,
+        ckpt_name,
+        expected_sha256,
+        device="cpu",
+        vocab_filename=None,
+    ):
+        load_args = {
+            "folder": model_dir,
+            "repo_id": repo_id,
+            "revision": revision,
+            "ckpt_filename": ckpt_name,
+            "expected_sha256": expected_sha256,
+        }
+        if vocab_filename is not None:
+            load_args["vocab_filename"] = vocab_filename
+        self.model = load_smi_ted(**load_args).to(device)
         self.device = device
 
     def __call__(self, smiles):
