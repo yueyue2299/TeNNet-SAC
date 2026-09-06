@@ -7,6 +7,14 @@ from shutil import copyfile
 from tempfile import TemporaryDirectory
 
 
+_CHECKPOINT_RESOURCES = (
+    "base.ckpt",
+    "geo.ckpt",
+    "prf.ckpt",
+    *(f"fine-tuned/{index}.ckpt" for index in range(1, 11)),
+)
+
+
 @dataclass(frozen=True)
 class Runtime:
     chemberta_embedder: object
@@ -19,8 +27,13 @@ class Runtime:
 
 def _checkpoint_root():
     root = files("tennetsac").joinpath("ckpt_files")
-    required = ("base.ckpt", "geo.ckpt", "prf.ckpt")
-    missing = [name for name in required if not root.joinpath(name).is_file()]
+    missing = []
+    for resource_name in _CHECKPOINT_RESOURCES:
+        resource = root
+        for component in resource_name.split("/"):
+            resource = resource.joinpath(component)
+        if not resource.is_file():
+            missing.append(resource_name)
     if missing:
         raise FileNotFoundError(
             f"Missing packaged checkpoint(s) {missing} under tennetsac/ckpt_files"
@@ -39,13 +52,7 @@ def _checkpoint_path(root):
     # Materializing each file also works for zip-imported wheels on 3.12.
     with TemporaryDirectory() as temporary_dir:
         checkpoint_path = Path(temporary_dir)
-        resources = (
-            "base.ckpt",
-            "geo.ckpt",
-            "prf.ckpt",
-            *(f"fine-tuned/{index}.ckpt" for index in range(1, 11)),
-        )
-        for resource_name in resources:
+        for resource_name in _CHECKPOINT_RESOURCES:
             resource = root
             for component in resource_name.split("/"):
                 resource = resource.joinpath(component)
