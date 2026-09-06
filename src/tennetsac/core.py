@@ -2,6 +2,7 @@ from typing import List, Tuple
 
 import numpy as np
 from .runtime import get_runtime
+from .utils.property import calc_ln_gamma, calc_ln_gamma_binary
 
 # === Define functions ===
 def sigma_profile_wrapper(smiles):
@@ -77,8 +78,6 @@ def binary_lng(smiles: List[str], temperature: float, molefraction: List[float],
     if not isinstance(smiles, list) or len(smiles) != 2:
         raise ValueError(f"'smiles' must be a list of exactly two SMILES strings, got {smiles}")
 
-    from .utils.property import calc_ln_gamma_binary
-
     gamma_predictor = select_gamma_predictor(version)
 
     ln_gamma_1, ln_gamma_2 = calc_ln_gamma_binary(smiles[0], smiles[1], molefraction, temperature,
@@ -106,8 +105,6 @@ def multi_lng(smiles: List[str], temperature: float, composition: List[float], v
     list[float]
         ln_gamma values for each component.
     """
-
-    from .utils.property import calc_ln_gamma
 
     gamma_predictor = select_gamma_predictor(version)
 
