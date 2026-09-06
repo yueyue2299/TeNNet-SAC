@@ -72,6 +72,29 @@ def test_multi_lng_returns_python_list(monkeypatch):
     assert isinstance(result, list)
 
 
+def test_multi_lng_autocompletes_an_n_minus_one_composition(monkeypatch):
+    import tennetsac
+    from tennetsac import core
+
+    profiles = {
+        "A": (torch.tensor([[1.0, 0.5]]), 2.0, 3.0),
+        "B": (torch.tensor([[0.5, 1.0]]), 3.0, 4.0),
+        "C": (torch.tensor([[1.5, 1.0]]), 4.0, 5.0),
+    }
+    monkeypatch.setattr(core, "sigma_profile_wrapper", profiles.__getitem__)
+    monkeypatch.setattr(
+        core,
+        "select_gamma_predictor",
+        lambda version: lambda sigma, temperature: torch.zeros_like(sigma),
+    )
+
+    completed = tennetsac.multi_lng(["A", "B", "C"], 298.15, [0.3, 0.4])
+    explicit = tennetsac.multi_lng(["A", "B", "C"], 298.15, [0.3, 0.4, 0.3])
+
+    assert completed == pytest.approx(explicit)
+    assert len(completed) == 3
+
+
 def test_binary_lng_rejects_non_binary_smiles():
     import tennetsac
 

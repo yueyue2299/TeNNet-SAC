@@ -54,3 +54,31 @@ It was staged explicitly with `git add -f` because the repository ignores
 The existing Colab link remains unchanged; it may need a separate update if the
 notebook is republished at a new Colab location. No notebook execution or model
 download was performed.
+
+## Fix Round 1: N-1 multicomponent composition
+
+The reviewer finding does not require a production or documentation change.
+`multi_lng` forwards its `composition` to the real
+`utils.property.calc_ln_gamma` path. That function already accepts exactly
+`num_components - 1` fractions (lines 68--73), appends
+`1.0 - sum(mole_fraction_list)`, and then performs the calculation. The PyPI
+0.1.10 golden integration fixture likewise records the valid three-component
+call with `[0.3, 0.4]`.
+
+Added `test_multi_lng_autocompletes_an_n_minus_one_composition` to
+`tests/test_api_contract.py`. It calls the public `tennetsac.multi_lng` API
+with lightweight fake profiles and a fake predictor, while retaining the real
+`calc_ln_gamma` calculation. It asserts that the N-1 call returns the same
+three values as the explicit `[0.3, 0.4, 0.3]` call. No RED production failure
+was available to demonstrate because the established implementation was already
+correct; removing the N-1 branch would make the first call raise the existing
+length-mismatch `ValueError`, so this regression test would fail.
+
+Commands and results:
+
+- `python -m pytest tests/test_api_contract.py::test_multi_lng_autocompletes_an_n_minus_one_composition -v`: **1 passed**.
+- `python -m pytest tests/test_documentation.py tests/test_api_contract.py -v`: **10 passed**.
+- `python -m pytest -m 'not integration' -v`: **109 passed, 2 deselected**.
+
+Concern: the published README example is intentionally left at N-1 composition
+to preserve the PyPI 0.1.10-compatible public behavior.
