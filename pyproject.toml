@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tennetsac"
+dynamic = ["version"]
+description = "Thermodynamics-embedded Neural Network for Segment Activity Coefficients"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = "MIT"
+authors = [{ name = "Yue Yang" }]
+dependencies = [
+  "numpy>=1.25,<2",
+  "pandas<2.2",
+  "pyarrow<15",
+  "scikit-learn",
+  "scipy",
+  "rdkit",
+  "matplotlib",
+  "tqdm",
+  "transformers==4.36.2",
+  "huggingface-hub",
+  "safetensors",
+  "tokenizers",
+  "accelerate",
+  "torch>=2.1.2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "packaging", "PyYAML>=6"]
+build = ["build>=1.2", "twine>=5"]
+dev = [
+  "pytest>=8",
+  "packaging",
+  "PyYAML>=6",
+  "build>=1.2",
+  "twine>=5",
+  "jupyterlab",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tennetsac = [
+  "model_manifest.json",
+  "assets/*.md",
+  "smi_ted_light/*.txt",
+  "ckpt_files/*.ckpt",
+  "ckpt_files/fine-tuned/*.ckpt",
+]
+
+[tool.setuptools_scm]
+write_to = "src/tennetsac/_version.py"
+version_scheme = "no-guess-dev"
+local_scheme = "node-and-date"
+fallback_version = "0.0.dev0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: requires locally available full model weights"]

@@ -24,3 +24,11 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Test and package build artifacts
+.pytest_cache/
+.coverage
+build/
+dist/
+*.egg-info/
+src/tennetsac/_version.py
