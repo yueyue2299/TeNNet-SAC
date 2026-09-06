@@ -21,6 +21,7 @@ Thumbs.db
 # Conda environment
 *.yml
 !PINN-SAC.yml
+!.github/workflows/*.yml
 
 # Logs
 *.log
