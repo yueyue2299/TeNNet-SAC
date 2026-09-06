@@ -8,7 +8,13 @@ dynamic = ["version"]
 description = "Thermodynamics-embedded Neural Network for Segment Activity Coefficients"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
-license = "MIT"
+license = "MIT AND Apache-2.0"
+license-files = [
+  "LICENSE",
+  "licenses/IBM-materials-APACHE-2.0.txt",
+  "licenses/fast-transformers-MIT.txt",
+  "THIRD_PARTY_NOTICES.md",
+]
 authors = [{ name = "Yue Yang" }]
 dependencies = [
   "numpy>=1.25,<2",

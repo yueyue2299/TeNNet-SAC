@@ -96,7 +96,10 @@ def multi_lng(smiles: List[str], temperature: float, composition: List[float], v
     temperature : float
         System temperature (K).
     composition : list[float]
-        Mole fractions of all components (must match the length of smiles, and sum close to 1).
+        Either N fractions (one mole fraction for every component), which must
+        sum close to 1; or N-1 fractions, in which case the final fraction is
+        computed as 1 - sum(composition), subject to the same existing
+        validation rules.
     version : str, optional
         Model type, "base" or "tuned". Default is "tuned".
 

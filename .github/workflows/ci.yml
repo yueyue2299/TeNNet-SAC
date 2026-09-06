@@ -25,9 +25,9 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -46,9 +46,9 @@ jobs:
         transformers: ["transformers==4.36.2", "transformers>=5,<6"]
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
           cache: pip
@@ -65,9 +65,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
           cache: pip
@@ -80,11 +80,33 @@ jobs:
         run: python -m twine check dist/*
       - name: Verify distribution contents
         run: python scripts/verify_distribution.py dist/*
-      - name: Install and import the wheel outside the checkout
+      - name: Verify the installed wheel outside the checkout
         run: |
           smoke_dir="$(mktemp -d)"
           python -m pip install --no-deps --target "$smoke_dir" dist/*.whl
           (
             cd "$smoke_dir"
-            PYTHONPATH="$smoke_dir" python -c 'import pathlib; import tennetsac; package = pathlib.Path(tennetsac.__file__).resolve(); assert package.is_relative_to(pathlib.Path.cwd()); print(package)'
+            PYTHONPATH="$smoke_dir" python - <<'PY'
+          from importlib.metadata import version
+          from pathlib import Path
+
+          import tennetsac
+          from tennetsac.model_manifest import verify_bundled_artifacts
+
+          package = Path(tennetsac.__file__).resolve()
+          try:
+              package.relative_to(Path.cwd())
+          except ValueError:
+              raise SystemExit(f"source checkout shadowed installed wheel: {package}")
+          installed_version = version("tennetsac")
+          if tennetsac.__version__ != installed_version:
+              raise SystemExit(
+                  f"installed version mismatch: {tennetsac.__version__} != "
+                  f"{installed_version}"
+              )
+          errors = verify_bundled_artifacts()
+          if errors:
+              raise SystemExit("\n".join(errors))
+          print(package)
+          PY
           )

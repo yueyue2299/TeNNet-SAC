@@ -1,3 +1,9 @@
+# Portions derived from https://github.com/IBM/materials
+# Upstream commit: b16a458f37e6ce91997d3d3f6a12037971eb9f94
+# Upstream path: models/smi_ted/inference/smi_ted_light/load.py
+# License: Apache-2.0 (see licenses/IBM-materials-APACHE-2.0.txt)
+# Modified for TeNNet-SAC; see THIRD_PARTY_NOTICES.md for the change summary.
+
 # Deep learning
 import torch
 import torch.nn as nn
@@ -637,7 +643,21 @@ def load_smi_ted(folder="./smi_ted_light",
         download_args = {"repo_id": repo_id, "filename": ckpt_filename}
         if revision is not None:
             download_args["revision"] = revision
-        file_path = hf_hub_download(**download_args)
+        try:
+            file_path = hf_hub_download(**download_args)
+        except Exception as error:
+            revision_description = (
+                revision if revision is not None else "<not supplied>"
+            )
+            raise RuntimeError(
+                "Unable to load the SMI-TED checkpoint. "
+                f"Attempted local checkpoint: {local_checkpoint}; "
+                f"Hugging Face repository: {repo_id}; "
+                f"checkpoint filename: {ckpt_filename}; "
+                f"revision: {revision_description}. "
+                "Set TENNETSAC_SMI_TED_CHECKPOINT to an existing local "
+                "checkpoint path to bypass the download."
+            ) from error
     if expected_sha256 is not None:
         actual_sha256 = _sha256(file_path)
         if actual_sha256 != expected_sha256:

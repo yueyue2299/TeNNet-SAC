@@ -22,6 +22,7 @@ Thumbs.db
 *.yml
 !PINN-SAC.yml
 !.github/workflows/*.yml
+!.github/dependabot.yml
 
 # Logs
 *.log

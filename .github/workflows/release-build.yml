@@ -20,11 +20,11 @@ jobs:
       contents: write
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
           cache: pip
@@ -39,18 +39,41 @@ jobs:
         run: python -m twine check dist/*
       - name: Verify distribution contents
         run: python scripts/verify_distribution.py dist/*
-      - name: Verify bundled model artifacts
-        run: python -c 'from tennetsac.model_manifest import verify_bundled_artifacts; errors = verify_bundled_artifacts(); assert not errors, errors'
       - name: Verify release tag matches distributions
         run: python scripts/verify_release_version.py --tag "$GITHUB_REF_NAME" dist/*
-      - name: Install release wheel
-        run: python -m pip install --force-reinstall --no-deps dist/*.whl
-      - name: Verify installed release version
-        run: python -c 'import os, tennetsac; assert tennetsac.__version__ == os.environ["GITHUB_REF_NAME"].removeprefix("v")'
+      - name: Verify the installed release wheel
+        run: |
+          release_dir="$(mktemp -d)"
+          python -m pip install --no-deps --target "$release_dir" dist/*.whl
+          (
+            cd "$release_dir"
+            PYTHONPATH="$release_dir" GITHUB_REF_NAME="$GITHUB_REF_NAME" python - <<'PY'
+          import os
+          from pathlib import Path
+
+          import tennetsac
+          from tennetsac.model_manifest import verify_bundled_artifacts
+
+          package = Path(tennetsac.__file__).resolve()
+          try:
+              package.relative_to(Path.cwd())
+          except ValueError:
+              raise SystemExit(f"source checkout shadowed installed wheel: {package}")
+          expected_version = os.environ["GITHUB_REF_NAME"].removeprefix("v")
+          if tennetsac.__version__ != expected_version:
+              raise SystemExit(
+                  f"installed version mismatch: {tennetsac.__version__} != "
+                  f"{expected_version}"
+              )
+          errors = verify_bundled_artifacts()
+          if errors:
+              raise SystemExit("\n".join(errors))
+          PY
+          )
       - name: Generate release checksums
         run: cd dist && shasum -a 256 * > SHA256SUMS
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tennetsac-release-${{ github.ref_name }}
           path: |

@@ -1,3 +1,9 @@
+# Derived from tokenizer logic in https://github.com/IBM/materials
+# Upstream commit: b16a458f37e6ce91997d3d3f6a12037971eb9f94
+# Upstream path: models/smi_ted/inference/smi_ted_light/load.py
+# License: Apache-2.0 (see licenses/IBM-materials-APACHE-2.0.txt)
+# Modified and extracted for TeNNet-SAC; see THIRD_PARTY_NOTICES.md.
+
 import re
 from pathlib import Path
 

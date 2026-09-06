@@ -124,3 +124,42 @@ def test_load_smi_ted_rejects_a_local_checkpoint_with_wrong_digest(tmp_path, mon
     assert str(error.value) == (
         f"SHA256 mismatch for smi-ted-Light_40.pt: expected {expected}, got {actual}"
     )
+
+
+@pytest.mark.parametrize(
+    ("revision", "expected_revision"),
+    [
+        (None, "<not supplied>"),
+        ("414c3ea0a8603ef49d1c5bb3db336e09877c01ce", "414c3ea0a8603ef49d1c5bb3db336e09877c01ce"),
+    ],
+)
+def test_load_smi_ted_wraps_download_failure_with_actionable_context(
+    tmp_path, monkeypatch, revision, expected_revision
+):
+    vocab = tmp_path / "vocab.txt"
+    vocab.write_text("<bos>\n<eos>\n<pad>\n<mask>\nC\n", encoding="utf-8")
+    download_error = RuntimeError("offline cache miss")
+
+    monkeypatch.setattr(smi_ted_load, "Smi_ted", FakeSmiTed)
+    monkeypatch.setattr(
+        smi_ted_load,
+        "hf_hub_download",
+        lambda **kwargs: (_ for _ in ()).throw(download_error),
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        smi_ted_load.load_smi_ted(
+            folder=tmp_path,
+            repo_id="ibm/materials.smi-ted",
+            revision=revision,
+            ckpt_filename="smi-ted-Light_40.pt",
+            vocab_filename=vocab.name,
+        )
+
+    message = str(error.value)
+    assert str(tmp_path / "smi-ted-Light_40.pt") in message
+    assert "ibm/materials.smi-ted" in message
+    assert "smi-ted-Light_40.pt" in message
+    assert expected_revision in message
+    assert "TENNETSAC_SMI_TED_CHECKPOINT" in message
+    assert error.value.__cause__ is download_error

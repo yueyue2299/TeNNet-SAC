@@ -1,4 +1,6 @@
 from pathlib import Path
+import re
+import subprocess
 
 import yaml
 
@@ -30,9 +32,17 @@ def _run_commands(job):
 def _uses_steps(job):
     return [
         step
-        for step in job["steps"]
+        for step in job.get("steps", [])
         if isinstance(step, dict) and "uses" in step
     ]
+
+
+def _step(job, name):
+    return next(step for step in job["steps"] if step.get("name") == name)
+
+
+def _command_lines(command):
+    return [line.strip() for line in command.splitlines() if line.strip()]
 
 
 def test_ci_triggers_and_permissions_are_reusable():
@@ -66,16 +76,31 @@ def test_unit_job_covers_supported_python_versions_and_skips_integration():
 def test_distribution_job_builds_checks_and_smoke_tests_installed_wheel():
     workflow = _workflow()
     distribution = workflow["jobs"]["distribution"]
-    commands = _run_commands(distribution)
-    command_text = "\n".join(commands)
 
-    assert "python -m build" in command_text
-    assert "python -m twine check dist/*" in command_text
-    assert "python scripts/verify_distribution.py dist/*" in command_text
-    assert "pip install" in command_text and "*.whl" in command_text
-    assert "mktemp" in command_text
-    assert "cd \"$smoke_dir\"" in command_text or "cd \"${smoke_dir}\"" in command_text
-    assert "import tennetsac" in command_text
+    assert _step(distribution, "Build wheel and source distribution")["run"] == (
+        "python -m build"
+    )
+    assert _step(distribution, "Check distribution metadata")["run"] == (
+        "python -m twine check dist/*"
+    )
+    assert _step(distribution, "Verify distribution contents")["run"] == (
+        "python scripts/verify_distribution.py dist/*"
+    )
+
+    smoke = _command_lines(
+        _step(distribution, "Verify the installed wheel outside the checkout")["run"]
+    )
+    assert smoke[:4] == [
+        'smoke_dir="$(mktemp -d)"',
+        'python -m pip install --no-deps --target "$smoke_dir" dist/*.whl',
+        "(",
+        'cd "$smoke_dir"',
+    ]
+    assert 'PYTHONPATH="$smoke_dir" python - <<\'PY\'' in smoke
+    assert "from tennetsac.model_manifest import verify_bundled_artifacts" in smoke
+    assert "errors = verify_bundled_artifacts()" in smoke
+    assert any("raise SystemExit" in line for line in smoke)
+    assert not any(re.search(r"\bassert\b", line) for line in smoke)
 
 
 def test_tokenizer_compatibility_isolated_matrix_and_targeted_test():
@@ -109,7 +134,7 @@ def test_release_build_reuses_ci_and_constructs_draft_release_once():
     command_text = "\n".join(commands)
     upload = next(
         step for step in _uses_steps(release)
-        if step["uses"] == "actions/upload-artifact@v4"
+        if step["uses"].startswith("actions/upload-artifact@")
     )
 
     assert ci_job["uses"] == "./.github/workflows/ci.yml"
@@ -118,18 +143,25 @@ def test_release_build_reuses_ci_and_constructs_draft_release_once():
     assert 'python -m pytest -m "not integration" -v' in commands
     assert "python -m twine check dist/*" in commands
     assert "python scripts/verify_distribution.py dist/*" in commands
-    assert (
-        "python -c 'from tennetsac.model_manifest import verify_bundled_artifacts; "
-        "errors = verify_bundled_artifacts(); assert not errors, errors'"
-        in commands
-    )
     assert 'python scripts/verify_release_version.py --tag "$GITHUB_REF_NAME" dist/*' in commands
-    assert "python -m pip install --force-reinstall --no-deps dist/*.whl" in commands
-    assert (
-        "python -c 'import os, tennetsac; assert tennetsac.__version__ == "
-        'os.environ["GITHUB_REF_NAME"].removeprefix("v")\''
-        in commands
+    installed = _command_lines(
+        _step(release, "Verify the installed release wheel")["run"]
     )
+    assert installed[:4] == [
+        'release_dir="$(mktemp -d)"',
+        'python -m pip install --no-deps --target "$release_dir" dist/*.whl',
+        "(",
+        'cd "$release_dir"',
+    ]
+    assert (
+        'PYTHONPATH="$release_dir" GITHUB_REF_NAME="$GITHUB_REF_NAME" '
+        "python - <<'PY'"
+    ) in installed
+    assert "from tennetsac.model_manifest import verify_bundled_artifacts" in installed
+    assert "errors = verify_bundled_artifacts()" in installed
+    assert any("tennetsac.__version__" in line for line in installed)
+    assert any("raise SystemExit" in line for line in installed)
+    assert not any(re.search(r"\bassert\b", line) for line in installed)
     assert "cd dist && shasum -a 256 * > SHA256SUMS" in commands
     assert upload["with"] == {
         "name": "tennetsac-release-${{ github.ref_name }}",
@@ -170,7 +202,6 @@ def test_publish_pypi_downloads_verifies_and_publishes_existing_assets_only():
     publish = workflow["jobs"]["publish"]
     commands = _run_commands(publish)
     command_text = "\n".join(commands)
-    uses = [step["uses"] for step in _uses_steps(publish)]
     tag_validation = (
         "python -c 'import os; from scripts.verify_release_version import version_from_tag; "
         'version_from_tag(os.environ["RELEASE_TAG"])\''
@@ -198,13 +229,95 @@ def test_publish_pypi_downloads_verifies_and_publishes_existing_assets_only():
     assert "cd dist && shasum -a 256 -c SHA256SUMS" in commands
     assert 'python scripts/verify_release_version.py --tag "$RELEASE_TAG" dist/*.whl dist/*.tar.gz' in commands
     assert "python -m twine check dist/*.whl dist/*.tar.gz" in commands
+    distribution_validation = (
+        "python scripts/verify_distribution.py dist/*.whl dist/*.tar.gz"
+    )
+    assert distribution_validation in commands
+    assert commands.index(distribution_validation) < commands.index(
+        "python -m twine check dist/*.whl dist/*.tar.gz"
+    )
     assert "rm dist/SHA256SUMS" in commands
-    assert "pypa/gh-action-pypi-publish@release/v1" in uses
     publisher = next(
         step for step in _uses_steps(publish)
-        if step["uses"] == "pypa/gh-action-pypi-publish@release/v1"
+        if step["uses"].startswith("pypa/gh-action-pypi-publish@")
     )
     assert publisher["with"] == {"packages-dir": "dist/"}
     forbidden_build_tokens = ("python -m build", " sdist", " bdist")
     assert not any(token in command_text for token in forbidden_build_tokens)
     assert not any(command.strip() == "build" for command in commands)
+
+
+def test_external_actions_are_immutable_and_audited() -> None:
+    expected = {
+        "actions/checkout": (
+            "11d5960a326750d5838078e36cf38b85af677262",
+            "v4.4.0",
+        ),
+        "actions/setup-python": (
+            "a26af69be951a213d495a4c3e4e4022e16d87065",
+            "v5.6.0",
+        ),
+        "actions/upload-artifact": (
+            "ea165f8d65b6e75b540449e92b4886f43607fa02",
+            "v4.6.2",
+        ),
+        "pypa/gh-action-pypi-publish": (
+            "dc37677b2e1c63e2034f94d8a5b11f265b73ba33",
+            "v1.14.2",
+        ),
+    }
+    seen = set()
+
+    for path in sorted(WORKFLOW_DIR.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        workflow = _workflow(path)
+        for job in workflow["jobs"].values():
+            references = [job["uses"]] if "uses" in job else []
+            references.extend(step["uses"] for step in _uses_steps(job))
+            for reference in references:
+                if reference.startswith("./"):
+                    continue
+                action, separator, commit = reference.partition("@")
+                assert separator and re.fullmatch(r"[0-9a-f]{40}", commit)
+                assert action in expected
+                expected_commit, version = expected[action]
+                assert commit == expected_commit
+                assert f"uses: {reference} # {version}" in source
+                seen.add(action)
+
+    assert seen == set(expected)
+
+
+def test_dependabot_checks_for_github_actions_updates_weekly() -> None:
+    path = WORKFLOW_DIR.parent / "dependabot.yml"
+    with path.open(encoding="utf-8") as stream:
+        configuration = yaml.load(stream, Loader=yaml.BaseLoader)
+
+    assert configuration["version"] == "2"
+    assert configuration["updates"] == [
+        {
+            "package-ecosystem": "github-actions",
+            "directory": "/",
+            "schedule": {"interval": "weekly"},
+        }
+    ]
+
+
+def test_dependabot_configuration_is_not_gitignored() -> None:
+    result = subprocess.run(
+        ["git", "check-ignore", "--quiet", ".github/dependabot.yml"],
+        cwd=WORKFLOW_DIR.parents[1],
+        check=False,
+    )
+
+    assert result.returncode == 1
+
+
+def test_release_critical_workflow_python_does_not_use_assert() -> None:
+    for path in sorted(WORKFLOW_DIR.glob("*.yml")):
+        workflow = _workflow(path)
+        for job in workflow["jobs"].values():
+            if "steps" not in job:
+                continue
+            for command in _run_commands(job):
+                assert not re.search(r"\bassert\b", command)

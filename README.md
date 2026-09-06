@@ -157,11 +157,19 @@ Soares, E.; Shirasuna, V.; Brazil, E. V.; Cerqueira, R.; Zubarev, D.; Schmidt, K
 
 ### External Code Acknowledgment
 
-The packaged `src/tennetsac/smi_ted_light/` support code is adapted from the [SMI-TED](https://github.com/IBM/materials/tree/main/models/smi_ted) repository by Soares et al., with only minimal modifications. The SMI-TED model weights themselves are revision-pinned external downloads. Full credit goes to the original authors.
+The packaged `src/tennetsac/smi_ted_light/` support code contains modified
+Apache-2.0 code from IBM's SMI-TED implementation and MIT-licensed Python code
+from Idiap's fast-transformers project. The SMI-TED model weights themselves
+remain revision-pinned external downloads. Exact repositories, immutable source
+commits, copied scope, local modifications, and license files are recorded in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+Original TeNNet-SAC code is licensed under the MIT License; see
+[`LICENSE`](LICENSE). Bundled third-party code remains under its applicable
+Apache-2.0 or MIT terms. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+and the verbatim texts in [`licenses/`](licenses/).
 
 ---
 

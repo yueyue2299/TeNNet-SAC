@@ -2,10 +2,16 @@ import hashlib
 import json
 from importlib.resources import as_file, files
 
+from ._manifest_schema import validate_manifest
+
 
 def load_manifest() -> dict:
     resource = files("tennetsac").joinpath("model_manifest.json")
-    return json.loads(resource.read_text(encoding="utf-8"))
+    manifest = json.loads(resource.read_text(encoding="utf-8"))
+    errors = validate_manifest(manifest)
+    if errors:
+        raise ValueError("Invalid model manifest: " + "; ".join(errors))
+    return manifest
 
 
 def external_model(name: str) -> dict:
