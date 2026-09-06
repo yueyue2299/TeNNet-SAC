@@ -144,7 +144,6 @@ def test_wheel_rejects_multiple_tennetsac_metadata_files(tmp_path):
         (".whl", _write_wheel, "\\\\tests\\\\escape.py", "absolute path"),
         (".whl", _write_wheel, "C:\\tests\\escape.py", "drive-qualified path"),
         (".whl", _write_wheel, "tennetsac\\..\\tests\\escape.py", "parent traversal"),
-        (".whl", _write_wheel, "", "empty path"),
         (".tar.gz", _write_sdist, "/tests/escape.py", "absolute path"),
         (".tar.gz", _write_sdist, "\\\\tests\\\\escape.py", "absolute path"),
         (".tar.gz", _write_sdist, "C:\\tests\\escape.py", "drive-qualified path"),
@@ -159,6 +158,28 @@ def test_verify_archive_rejects_unsafe_member_paths(
     writer(archive, [bad_member])
 
     assert any(reason in error for error in verify_archive(archive))
+
+
+def test_verify_wheel_rejects_empty_member_path(tmp_path, monkeypatch):
+    archive = tmp_path / "tennetsac-0.1.10.whl"
+    archive.write_bytes(b"fixture")
+
+    class FakeZipFile:
+        def __init__(self, path):
+            self.path = path
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def namelist(self):
+            return [*_wheel_members(), ""]
+
+    monkeypatch.setattr(zipfile, "ZipFile", FakeZipFile)
+
+    assert any("empty path" in error for error in verify_archive(archive))
 
 
 def test_malformed_sdist_reports_root_forbidden_and_missing_errors(tmp_path):
