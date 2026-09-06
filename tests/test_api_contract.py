@@ -22,6 +22,7 @@ def test_prediction_signatures_are_stable():
 
 
 def test_profile_returns_python_list_and_scalar_values(monkeypatch):
+    import tennetsac
     from tennetsac import core
 
     monkeypatch.setattr(
@@ -30,7 +31,7 @@ def test_profile_returns_python_list_and_scalar_values(monkeypatch):
         lambda smiles: (torch.tensor([[1.0, 2.0]]), 3.5, 4.5),
     )
 
-    result = core.profile("CCO")
+    result = tennetsac.profile("CCO")
 
     assert result == ([1.0, 2.0], 3.5, 4.5)
     assert isinstance(result[0], list)
@@ -40,6 +41,7 @@ def test_profile_returns_python_list_and_scalar_values(monkeypatch):
 
 
 def test_binary_lng_returns_python_lists(monkeypatch):
+    import tennetsac
     from tennetsac import core
 
     monkeypatch.setattr(
@@ -48,13 +50,14 @@ def test_binary_lng_returns_python_lists(monkeypatch):
         lambda *args, **kwargs: (np.array([0.1, 0.2]), np.array([0.3, 0.4])),
     )
 
-    result = core.binary_lng(["CCO", "O"], 298.15, [0.25, 0.75])
+    result = tennetsac.binary_lng(["CCO", "O"], 298.15, [0.25, 0.75])
 
     assert result == ([0.1, 0.2], [0.3, 0.4])
     assert all(isinstance(values, list) for values in result)
 
 
 def test_multi_lng_returns_python_list(monkeypatch):
+    import tennetsac
     from tennetsac import core
 
     monkeypatch.setattr(
@@ -63,7 +66,7 @@ def test_multi_lng_returns_python_list(monkeypatch):
         lambda *args, **kwargs: np.array([0.1, 0.2, 0.3]),
     )
 
-    result = core.multi_lng(["CCO", "O", "N"], 298.15, [0.2, 0.3, 0.5])
+    result = tennetsac.multi_lng(["CCO", "O", "N"], 298.15, [0.2, 0.3, 0.5])
 
     assert result == [0.1, 0.2, 0.3]
     assert isinstance(result, list)
