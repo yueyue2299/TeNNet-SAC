@@ -225,6 +225,31 @@ def test_verify_archive_rejects_forbidden_members(tmp_path, suffix, writer, bad_
 
 
 @pytest.mark.parametrize(
+    ("suffix", "writer", "bad_member"),
+    [
+        (".whl", _write_wheel, "tennetsac/models/smi-ted-Light_40.pt"),
+        (".whl", _write_wheel, "tennetsac/models/smi-ted-light-inference-v1.safetensors"),
+        (".tar.gz", _write_sdist, "tennetsac-0.1.10/assets/smi-ted-Light_40.pt"),
+        (
+            ".tar.gz",
+            _write_sdist,
+            "tennetsac-0.1.10/assets/smi-ted-light-inference-v1.safetensors",
+        ),
+    ],
+)
+def test_verify_archive_rejects_external_model_weight_suffixes(
+    tmp_path, suffix, writer, bad_member
+):
+    archive = tmp_path / f"tennetsac-0.1.10{suffix}"
+    writer(archive, [bad_member])
+
+    assert any(
+        "forbidden external model weight" in error and bad_member.rsplit("/", 1)[-1] in error
+        for error in verify_archive(archive)
+    )
+
+
+@pytest.mark.parametrize(
     ("suffix", "writer", "required", "expected_member"),
     [
         *[

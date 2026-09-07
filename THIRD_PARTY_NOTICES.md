@@ -22,8 +22,25 @@ of the tokenizer code; quieter diagnostics and progress reporting; pinned,
 local-first checkpoint loading; checkpoint digest checks; and actionable error
 handling for download failures.
 
-The SMI-TED model checkpoint is not copied into this distribution. It remains
-an external, revision-pinned download.
+### Derived SMI-TED inference asset
+
+The default SMI-TED asset is a TeNNet-SAC-distributed inference-only derivative
+named `smi-ted-light-inference-v1.safetensors`; it is not copied into this
+package distribution. Its immutable parent is the historical repository
+`ibm/materials.smi-ted`, now canonicalized as
+`ibm-research/materials.smi-ted`, at revision
+`414c3ea0a8603ef49d1c5bb3db336e09877c01ce`, from checkpoint
+`smi-ted-Light_40.pt` with SHA-256
+`baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375`.
+
+The derivative preserves the original float32 values only for the embedding
+path: token embedding, encoder blocks, and the autoencoder encoder/projector.
+The reconstruction decoder, language-model heads, and unused `net` are pruned.
+The resulting state contains exactly 224 tensors. It is distributed by
+TeNNet-SAC under the retained upstream Apache-2.0 terms, together with the
+verbatim Apache license in `licenses/IBM-materials-APACHE-2.0.txt` and release
+provenance material. This derivative is not an IBM-published checkpoint and
+does not imply IBM endorsement.
 
 ## Idiap fast-transformers
 

@@ -13,4 +13,5 @@ exclude CITATION.bib CITATION.ris
 exclude TeNNet-SAC.yml requirements.txt TrainingSystemsList.csv architecture.png
 exclude .gitignore TeNNetSAC.ipynb
 global-exclude *.py[cod] *.so
+global-exclude *.pt *.safetensors
 prune src/**/__pycache__

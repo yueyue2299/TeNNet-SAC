@@ -18,6 +18,26 @@ def test_readme_documents_the_public_package_and_notebook_location() -> None:
     assert "`src/tennetsac`" in readme
 
 
+def test_readme_documents_the_smi_ted_asset_workflow_and_immutable_updates() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    required_facts = {
+        "python -m tennetsac.model_assets download smi-ted-light",
+        "python -m tennetsac.model_assets verify smi-ted-light",
+        "TENNETSAC_CACHE_DIR",
+        "TENNETSAC_SMI_TED_CHECKPOINT",
+        "TENNETSAC_OFFLINE=1",
+        "model-smi-ted-light-v1",
+        "first prediction call",
+        "next major package version",
+        "model-smi-ted-light-v2",
+        "package patch",
+        "never moved or replaced",
+    }
+
+    assert not sorted(fact for fact in required_facts if fact not in readme)
+
+
 def _notebook() -> dict:
     return json.loads(
         (ROOT / "examples" / "TeNNetSAC.ipynb").read_text(encoding="utf-8")

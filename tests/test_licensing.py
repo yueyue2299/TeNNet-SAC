@@ -58,6 +58,26 @@ def test_third_party_notice_records_immutable_sources_and_local_scope() -> None:
     assert not sorted(fact for fact in required_facts if fact not in normalized_notice)
 
 
+def test_third_party_notice_records_smi_ted_derived_asset_provenance() -> None:
+    notice = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    normalized_notice = " ".join(notice.split())
+
+    required_facts = {
+        "ibm-research/materials.smi-ted",
+        "414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
+        "baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375",
+        "smi-ted-light-inference-v1.safetensors",
+        "pruned",
+        "224 tensors",
+        "Apache-2.0",
+        "TeNNet-SAC-distributed",
+        "not an IBM-published checkpoint",
+        "does not imply IBM endorsement",
+    }
+
+    assert not sorted(fact for fact in required_facts if fact not in normalized_notice)
+
+
 def test_modified_apache_sources_carry_provenance_headers() -> None:
     for filename in ("load.py", "tokenizer.py"):
         header = "\n".join(

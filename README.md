@@ -121,9 +121,42 @@ This notebook demonstrates how to:
 - Predict **activity coefficients** for both binary and multicomponent mixtures  
   - You can choose between the **Base model** (trained on COSMO-SAC data) and the **Fine-tuned model** (refined with experimental data)
 
-Importing `tennetsac` does not initialize the models. The packaged models and external embedders initialize on the first prediction call, so that call may download model files when they are not already cached.
+Importing `tennetsac` does not initialize the models. The packaged models and external embedders initialize on the first prediction call.
 
-For this release, ChemBERTa2 and SMI-TED are revision-pinned external downloads. The future offline ChemBERTa2 location, `src/tennetsac/assets/chemberta2/`, is reserved but intentionally empty. Package versions are derived from Git tags; GitHub is the release source.
+### SMI-TED model asset
+
+The default SMI-TED encoder is TeNNet-SAC's inference-only derivative from the
+immutable GitHub Release tag `model-smi-ted-light-v1`. It is not bundled in the
+wheel or source distribution. On the first prediction call, TeNNet-SAC verifies
+the cached asset and downloads it from that immutable release only when the
+cache is missing; later calls reuse the verified cache.
+
+To prefetch the asset before a prediction, then verify it without network
+access, run:
+
+```bash
+python -m tennetsac.model_assets download smi-ted-light
+python -m tennetsac.model_assets verify smi-ted-light
+```
+
+`TENNETSAC_CACHE_DIR` changes the cache root. Set
+`TENNETSAC_SMI_TED_CHECKPOINT` to use an explicit local checkpoint instead of
+the cache; the path remains user-owned and is never changed by TeNNet-SAC. Set
+`TENNETSAC_OFFLINE=1` to forbid network access entirely. In offline mode,
+prefetch the asset with the `download` command first, or provide the explicit
+checkpoint override.
+
+The temporary `.pt` override is supported only for the exact pinned legacy IBM
+checkpoint. It emits a `FutureWarning`, uses more memory, and will be removed
+in the next major package version. A model-release tag is immutable: if v1 is
+defective, TeNNet-SAC will publish a new release such as
+`model-smi-ted-light-v2`, update the manifest in a package patch, and leave v1
+unchanged—published model assets are never moved or replaced.
+
+ChemBERTa2 remains an external dependency. The future offline ChemBERTa2
+location, `src/tennetsac/assets/chemberta2/`, is reserved and intentionally
+empty; adding a future bundle requires a separate redistribution review.
+Package versions are derived from Git tags; GitHub is the release source.
 
 ## Project Structure
 

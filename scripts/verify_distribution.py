@@ -35,6 +35,7 @@ FORBIDDEN_PARTS = {
     "dist",
 }
 FORBIDDEN_SUFFIXES = {".pyc", ".so"}
+FORBIDDEN_MODEL_WEIGHT_SUFFIXES = {".pt", ".safetensors"}
 WHEEL_FORBIDDEN_ROOTS = {"tests", "docs", ".github", "examples", "scripts"}
 SDIST_FORBIDDEN_FILES = {
     "TeNNet-SAC.yml",
@@ -44,7 +45,6 @@ SDIST_FORBIDDEN_FILES = {
     "CITATION.ris",
     "architecture.png",
 }
-SMI_TED_CHECKPOINT = "smi-ted-Light_40.pt"
 CHECKPOINTS = {
     "base.ckpt",
     "geo.ckpt",
@@ -138,8 +138,8 @@ def _inspect_members(kind: str, members: list[str]) -> list[str]:
             errors.append(f"forbidden archive member: {member}")
         elif path.suffix.lower() in FORBIDDEN_SUFFIXES:
             errors.append(f"forbidden archive member: {member}")
-        elif path.name == SMI_TED_CHECKPOINT:
-            errors.append(f"forbidden SMI-TED checkpoint: {member}")
+        elif path.suffix.lower() in FORBIDDEN_MODEL_WEIGHT_SUFFIXES:
+            errors.append(f"forbidden external model weight: {member}")
         elif kind == "wheel" and parts and parts[0] in WHEEL_FORBIDDEN_ROOTS:
             errors.append(f"forbidden archive member: {member}")
         elif kind == "sdist" and (
