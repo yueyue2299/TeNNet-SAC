@@ -598,6 +598,58 @@ def test_exact_parent_digest_resolves_pt_override_as_legacy(
     )
 
 
+def test_symlinked_pt_override_preserves_lexical_suffix_for_legacy_dispatch(
+    monkeypatch, tmp_path, smi_entry
+):
+    contents = b"legacy parent behind a suffixless blob"
+    entry = dict(smi_entry)
+    entry["parent"] = dict(smi_entry["parent"])
+    entry["parent"]["sha256"] = hashlib.sha256(contents).hexdigest()
+    _configure_entry(monkeypatch, tmp_path / "cache", entry)
+    blob = tmp_path / entry["parent"]["sha256"]
+    blob.write_bytes(contents)
+    override = tmp_path / "smi-ted-Light_40.pt"
+    override.symlink_to(blob.name)
+    original_link_target = override.readlink()
+    monkeypatch.setenv(entry["legacy_override_env"], str(override))
+
+    resolved = resolve_model_asset()
+
+    assert resolved.path == override
+    assert resolved.path.suffix == ".pt"
+    assert resolved.format == "pytorch"
+    assert resolved.is_legacy is True
+    assert resolved.sha256 == entry["parent"]["sha256"]
+    assert override.is_symlink()
+    assert override.readlink() == original_link_target
+    assert override.read_bytes() == contents
+
+
+def test_symlinked_safetensors_override_preserves_lexical_suffix_for_dispatch(
+    monkeypatch, tmp_path, smi_entry
+):
+    contents = b"derived asset behind a suffixless blob"
+    entry = _entry_for_bytes(smi_entry, contents)
+    _configure_entry(monkeypatch, tmp_path / "cache", entry)
+    blob = tmp_path / entry["sha256"]
+    blob.write_bytes(contents)
+    override = tmp_path / "smi-ted-light-inference-v1.safetensors"
+    override.symlink_to(blob.name)
+    original_link_target = override.readlink()
+    monkeypatch.setenv(entry["legacy_override_env"], str(override))
+
+    resolved = resolve_model_asset()
+
+    assert resolved.path == override
+    assert resolved.path.suffix == ".safetensors"
+    assert resolved.format == "safetensors"
+    assert resolved.is_legacy is False
+    assert resolved.sha256 == entry["sha256"]
+    assert override.is_symlink()
+    assert override.readlink() == original_link_target
+    assert override.read_bytes() == contents
+
+
 @pytest.mark.parametrize("suffix", [".bin", ".PT", ""])
 def test_unsupported_override_suffix_is_rejected_without_modification(
     monkeypatch, tmp_path, smi_entry, suffix
