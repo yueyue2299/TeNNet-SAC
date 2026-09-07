@@ -141,7 +141,8 @@ The independently versioned model release is:
 
 The release also contains:
 
-- `SHA256SUMS` covering every release asset;
+- `SHA256SUMS` covering the safetensors, license, and provenance assets (the
+  checksum file does not hash itself);
 - `IBM-materials-APACHE-2.0.txt`; and
 - `SMI_TED_INFERENCE_PROVENANCE.md` describing the parent checkpoint, conversion
   command, included prefixes, excluded prefixes, architecture, and local
