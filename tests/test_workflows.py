@@ -178,6 +178,43 @@ def test_release_build_reuses_ci_and_constructs_draft_release_once():
     )
 
 
+def test_release_build_verifies_public_smi_ted_asset_before_packaging():
+    workflow = _named_workflow("release-build.yml")
+    release = workflow["jobs"]["release"]
+    commands = _run_commands(release)
+    unit_tests = 'python -m pytest -m "not integration" -v'
+    build = "python -m build"
+    draft_release = (
+        'gh release create "$GITHUB_REF_NAME" dist/*.whl dist/*.tar.gz '
+        "dist/SHA256SUMS --draft --verify-tag"
+    )
+    smoke = _step(release, "Verify public SMI-TED asset before packaging")
+
+    assert release.get("env") is None
+    assert smoke["env"] == {
+        "TENNETSAC_OFFLINE": "0",
+        "HF_HUB_OFFLINE": "0",
+        "TRANSFORMERS_OFFLINE": "0",
+        "TENNETSAC_PUBLIC_ASSET_SMOKE": "1",
+        "TENNETSAC_SMI_TED_CHECKPOINT": "",
+        "TENNETSAC_CACHE_DIR": "${{ runner.temp }}/tennetsac-public-asset-smoke",
+    }
+    assert _command_lines(smoke["run"]) == [
+        "python -m tennetsac.model_assets download smi-ted-light",
+        "python -m tennetsac.model_assets verify smi-ted-light",
+        "python -m pytest tests/integration/test_smi_ted_asset.py -k public_asset -v",
+        "python -m pytest tests/integration/test_full_model.py -k public_asset -v",
+    ]
+    assert commands.index(unit_tests) < commands.index(smoke["run"])
+    assert commands.index(smoke["run"]) < commands.index(build)
+    assert commands.index(smoke["run"]) < commands.index(draft_release)
+
+    for step in release["steps"]:
+        if step is smoke:
+            continue
+        assert not set(step.get("env", {})).intersection(smoke["env"])
+
+
 def test_publish_pypi_is_manual_protected_trusted_publishing():
     workflow = _named_workflow("publish-pypi.yml")
     job = workflow["jobs"]["publish"]

@@ -80,3 +80,33 @@ def test_full_runtime_matches_pypi_0_1_10_golden_outputs(monkeypatch):
     np.testing.assert_allclose(
         multi_lng_values, expected["multi"]["lng"], rtol=1e-5, atol=1e-6
     )
+
+
+def test_public_asset_full_runtime_profile_uses_fresh_resolution(monkeypatch):
+    if os.environ.get("TENNETSAC_PUBLIC_ASSET_SMOKE") != "1":
+        pytest.skip("public SMI-TED asset smoke is disabled")
+    assert not os.environ.get("TENNETSAC_SMI_TED_CHECKPOINT")
+
+    from tennetsac import _model_assets, runtime
+    from tennetsac.model_manifest import external_model
+    from tennetsac import profile
+
+    asset_entry = external_model("smi-ted-light")
+    assert _model_assets.asset_cache_path(asset_entry).is_file()
+    runtime.get_runtime.cache_clear()
+    _model_assets._clear_verified_hash_cache()
+    resolve_model_asset = _model_assets.resolve_model_asset
+    calls = []
+
+    def record_public_resolution(name, allow_download=True):
+        calls.append((name, allow_download))
+        return resolve_model_asset(name, allow_download=allow_download)
+
+    monkeypatch.setattr(_model_assets, "resolve_model_asset", record_public_resolution)
+    sigma, area, volume = profile("CCO")
+
+    assert calls == [("smi-ted-light", True)]
+    assert len(sigma) == 51
+    assert np.isfinite(sigma).all()
+    assert area > 0
+    assert volume > 0

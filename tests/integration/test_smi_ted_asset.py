@@ -73,3 +73,37 @@ def test_real_smi_ted_inference_asset_matches_the_pinned_parent() -> None:
     assert not hasattr(inference, "decoder")
     assert not hasattr(inference, "net")
     assert not hasattr(inference.encoder, "lang_model")
+
+
+def test_public_asset_resolution_loads_and_encodes_ethanol() -> None:
+    if os.environ.get("TENNETSAC_PUBLIC_ASSET_SMOKE") != "1":
+        pytest.skip("public SMI-TED asset smoke is disabled")
+    assert not os.environ.get("TENNETSAC_SMI_TED_CHECKPOINT")
+
+    from tennetsac import _model_assets
+    from tennetsac.model_manifest import external_model
+    from tennetsac.smi_ted_light.load import load_smi_ted
+
+    asset_entry = external_model("smi-ted-light")
+    expected_path = _model_assets.asset_cache_path(asset_entry)
+    _model_assets._clear_verified_hash_cache()
+    resolved = _model_assets.resolve_model_asset("smi-ted-light")
+
+    assert resolved.path == expected_path.absolute()
+    assert resolved.path.suffix == ".safetensors"
+    assert resolved.sha256 == asset_entry["sha256"]
+    assert _sha256(resolved.path) == asset_entry["sha256"]
+
+    vocab_path = (
+        Path(__file__).parents[2]
+        / "src"
+        / "tennetsac"
+        / "smi_ted_light"
+        / "bert_vocab_curated.txt"
+    )
+    model = load_smi_ted(resolved.path, vocab_path, asset_entry).eval()
+    embedding = model.encode(["CCO"], return_torch=True)
+
+    assert embedding.device.type == "cpu"
+    assert embedding.shape == (1, 768)
+    assert torch.isfinite(embedding).all()
