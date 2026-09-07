@@ -30,11 +30,40 @@ EXPECTED_EXTERNAL_MODELS = [
     },
     {
         "name": "smi-ted-light",
-        "source": "ibm/materials.smi-ted",
-        "filename": "smi-ted-Light_40.pt",
-        "revision": "414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
-        "sha256": "baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375",
         "distribution": "external",
+        "format": "safetensors",
+        "format_version": 1,
+        "repository": "yueyue2299/TeNNet-SAC",
+        "release_tag": "model-smi-ted-light-v1",
+        "url": "https://github.com/yueyue2299/TeNNet-SAC/releases/download/model-smi-ted-light-v1/smi-ted-light-inference-v1.safetensors",
+        "filename": "smi-ted-light-inference-v1.safetensors",
+        "sha256": "1eda6afcb37fcaa85c6303ed57decf0b84294f9bb8ccc79538f9e1c22701acf4",
+        "state_tensor_count": 224,
+        "state_tensor_bytes": 656641536,
+        "vocab_size": 2393,
+        "architecture": {
+            "n_layer": 12,
+            "n_head": 12,
+            "n_embd": 768,
+            "max_len": 202,
+            "num_feats": 32,
+        },
+        "parent": {
+            "historical_repository": "ibm/materials.smi-ted",
+            "canonical_repository": "ibm-research/materials.smi-ted",
+            "revision": "414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
+            "filename": "smi-ted-Light_40.pt",
+            "sha256": "baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375",
+        },
+        "pruning": {
+            "rule_version": 1,
+            "included_prefixes": [
+                "encoder.tok_emb.",
+                "encoder.blocks.",
+                "decoder.autoencoder.encoder.",
+            ],
+        },
+        "legacy_override_env": "TENNETSAC_SMI_TED_CHECKPOINT",
     },
 ]
 EXPECTED_TOKENIZERS = [
@@ -56,7 +85,7 @@ def test_manifest_matches_the_complete_literal_release_schema() -> None:
         "external_models",
         "tokenizers",
     }
-    assert manifest["schema_version"] == 1
+    assert manifest["schema_version"] == 2
     assert manifest["bundle_version"] == "1.0.0"
     assert manifest["artifacts"] == EXPECTED_ARTIFACTS
     assert manifest["external_models"] == EXPECTED_EXTERNAL_MODELS
@@ -81,7 +110,7 @@ def test_manifest_pins_external_model_sources_and_revisions() -> None:
 @pytest.mark.parametrize(
     ("mutation", "expected_error"),
     [
-        (lambda manifest: manifest.update(schema_version=2), "schema_version"),
+        (lambda manifest: manifest.update(schema_version=1), "schema_version"),
         (lambda manifest: manifest.update(unexpected=True), "top-level keys"),
         (
             lambda manifest: manifest["artifacts"][0].pop("distribution"),
@@ -122,6 +151,52 @@ def test_manifest_pins_external_model_sources_and_revisions() -> None:
             "external model keys",
         ),
         (
+            lambda manifest: manifest["external_models"][1].update(
+                url="http://github.com/yueyue2299/TeNNet-SAC/releases/download/model-smi-ted-light-v1/smi-ted-light-inference-v1.safetensors"
+            ),
+            "immutable HTTPS GitHub URL",
+        ),
+        (
+            lambda manifest: manifest["external_models"][1].update(
+                release_tag="model-smi-ted-light-v2"
+            ),
+            "release_tag",
+        ),
+        (
+            lambda manifest: manifest["external_models"][1].update(
+                state_tensor_count=223
+            ),
+            "state_tensor_count",
+        ),
+        (
+            lambda manifest: manifest["external_models"][1]["architecture"].update(
+                n_embd=512
+            ),
+            "architecture",
+        ),
+        (
+            lambda manifest: manifest["external_models"][1]["parent"].update(
+                canonical_repository="ibm/materials.smi-ted"
+            ),
+            "parent",
+        ),
+        (
+            lambda manifest: manifest["external_models"][1]["pruning"].update(
+                included_prefixes=[
+                    "encoder.blocks.",
+                    "encoder.tok_emb.",
+                    "decoder.autoencoder.encoder.",
+                ]
+            ),
+            "included_prefixes",
+        ),
+        (
+            lambda manifest: manifest["external_models"][1].update(
+                legacy_override_env="TENNETSAC_OTHER_CHECKPOINT"
+            ),
+            "legacy_override_env",
+        ),
+        (
             lambda manifest: manifest["tokenizers"][0].update(
                 path=manifest["tokenizers"][0].pop("vocab_path")
             ),
@@ -134,7 +209,7 @@ def test_manifest_validator_rejects_incomplete_or_unapproved_schema(
 ) -> None:
     manifest = copy.deepcopy(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "bundle_version": "1.0.0",
             "artifacts": EXPECTED_ARTIFACTS,
             "external_models": EXPECTED_EXTERNAL_MODELS,

@@ -37,7 +37,7 @@ LICENSE_FILES = [
 def _manifest_bytes():
     return json.dumps(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "bundle_version": "1.0.0",
             "artifacts": [
                 {
@@ -57,11 +57,40 @@ def _manifest_bytes():
                 },
                 {
                     "name": "smi-ted-light",
-                    "source": "ibm/materials.smi-ted",
-                    "filename": "smi-ted-Light_40.pt",
-                    "revision": "414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
-                    "sha256": "baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375",
                     "distribution": "external",
+                    "format": "safetensors",
+                    "format_version": 1,
+                    "repository": "yueyue2299/TeNNet-SAC",
+                    "release_tag": "model-smi-ted-light-v1",
+                    "url": "https://github.com/yueyue2299/TeNNet-SAC/releases/download/model-smi-ted-light-v1/smi-ted-light-inference-v1.safetensors",
+                    "filename": "smi-ted-light-inference-v1.safetensors",
+                    "sha256": "1eda6afcb37fcaa85c6303ed57decf0b84294f9bb8ccc79538f9e1c22701acf4",
+                    "state_tensor_count": 224,
+                    "state_tensor_bytes": 656641536,
+                    "vocab_size": 2393,
+                    "architecture": {
+                        "n_layer": 12,
+                        "n_head": 12,
+                        "n_embd": 768,
+                        "max_len": 202,
+                        "num_feats": 32,
+                    },
+                    "parent": {
+                        "historical_repository": "ibm/materials.smi-ted",
+                        "canonical_repository": "ibm-research/materials.smi-ted",
+                        "revision": "414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
+                        "filename": "smi-ted-Light_40.pt",
+                        "sha256": "baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375",
+                    },
+                    "pruning": {
+                        "rule_version": 1,
+                        "included_prefixes": [
+                            "encoder.tok_emb.",
+                            "encoder.blocks.",
+                            "decoder.autoencoder.encoder.",
+                        ],
+                    },
+                    "legacy_override_env": "TENNETSAC_SMI_TED_CHECKPOINT",
                 },
             ],
             "tokenizers": [
