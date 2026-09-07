@@ -23,6 +23,8 @@ def _complete_source_state():
 
 def _parent_checkpoint(source_state=None):
     return {
+        "MODEL_STATE": source_state or _complete_source_state(),
+        "EPOCHS_RUN": 40,
         "hparams": {
             "n_layer": 12,
             "n_head": 12,
@@ -30,7 +32,6 @@ def _parent_checkpoint(source_state=None):
             "max_len": 202,
             "num_feats": 32,
         },
-        "state_dict": source_state or _complete_source_state(),
     }
 
 
@@ -123,7 +124,7 @@ def test_load_verified_parent_hashes_before_safe_deserialization(
     assert loaded is checkpoint
     assert calls == [
         (
-            parent,
+            str(parent),
             {
                 "map_location": torch.device("cpu"),
                 "weights_only": True,
@@ -151,8 +152,14 @@ def test_load_verified_parent_rejects_digest_before_torch_load(
 @pytest.mark.parametrize(
     "checkpoint",
     [
-        {"state_dict": _complete_source_state()},
-        {"hparams": _parent_checkpoint()["hparams"]},
+        {
+            "MODEL_STATE": _complete_source_state(),
+            "EPOCHS_RUN": 40,
+        },
+        {
+            "EPOCHS_RUN": 40,
+            "hparams": _parent_checkpoint()["hparams"],
+        },
         {**_parent_checkpoint(), "extra": object()},
     ],
 )
@@ -186,8 +193,8 @@ def test_validate_parent_checkpoint_requires_exact_architecture(
 @pytest.mark.parametrize(
     "checkpoint",
     [
-        {"hparams": [], "state_dict": _complete_source_state()},
-        {"hparams": _parent_checkpoint()["hparams"], "state_dict": []},
+        {**_parent_checkpoint(), "hparams": []},
+        {**_parent_checkpoint(), "MODEL_STATE": []},
     ],
 )
 def test_validate_parent_checkpoint_requires_mapping_members(checkpoint):

@@ -52,7 +52,7 @@ def sha256_file(path: Path) -> str:
 def validate_parent_checkpoint(checkpoint: Any) -> Mapping[str, torch.Tensor]:
     if not isinstance(checkpoint, Mapping):
         raise TypeError("parent checkpoint must be a mapping")
-    expected_keys = {"hparams", "state_dict"}
+    expected_keys = {"MODEL_STATE", "EPOCHS_RUN", "hparams"}
     actual_keys = set(checkpoint)
     if actual_keys != expected_keys:
         raise ValueError(
@@ -71,9 +71,9 @@ def validate_parent_checkpoint(checkpoint: Any) -> Mapping[str, torch.Tensor]:
                 f"expected {expected_value}, got {actual_value}"
             )
 
-    state_dict = checkpoint["state_dict"]
+    state_dict = checkpoint["MODEL_STATE"]
     if not isinstance(state_dict, Mapping):
-        raise TypeError("parent checkpoint state_dict must be a mapping")
+        raise TypeError("parent checkpoint MODEL_STATE must be a mapping")
     return state_dict
 
 
@@ -92,7 +92,7 @@ def load_verified_parent(
 
     try:
         checkpoint = torch.load(
-            parent_path,
+            str(parent_path),
             map_location=torch.device("cpu"),
             weights_only=True,
             mmap=True,
