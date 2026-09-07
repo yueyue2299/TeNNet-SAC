@@ -650,6 +650,48 @@ def test_symlinked_safetensors_override_preserves_lexical_suffix_for_dispatch(
     assert override.read_bytes() == contents
 
 
+def test_relative_override_preserves_dotdot_after_symlinked_directory(
+    monkeypatch, tmp_path, smi_entry
+):
+    trusted = b"verified through the symlinked directory"
+    untrusted = b"different bytes at the normalized path"
+    entry = _entry_for_bytes(smi_entry, trusted)
+    _configure_entry(monkeypatch, tmp_path / "cache", entry)
+
+    base = tmp_path / "base"
+    base.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    symlink_target = elsewhere / "nested"
+    symlink_target.mkdir(parents=True)
+    symlinked_directory = base / "symlink-dir"
+    symlinked_directory.symlink_to(symlink_target, target_is_directory=True)
+    original_link_target = symlinked_directory.readlink()
+
+    trusted_path = elsewhere / "file.safetensors"
+    trusted_path.write_bytes(trusted)
+    normalized_path = base / "file.safetensors"
+    normalized_path.write_bytes(untrusted)
+    relative_override = Path("base/symlink-dir/../file.safetensors")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(entry["legacy_override_env"], str(relative_override))
+
+    resolved = resolve_model_asset()
+
+    assert resolved.path == tmp_path / relative_override
+    assert resolved.path.is_absolute()
+    assert ".." in resolved.path.parts
+    assert resolved.path.suffix == ".safetensors"
+    assert resolved.path.read_bytes() == trusted
+    assert resolved.sha256 == entry["sha256"]
+    assert resolved.format == "safetensors"
+    assert resolved.is_legacy is False
+    assert resolved.manifest_entry == entry
+    assert symlinked_directory.is_symlink()
+    assert symlinked_directory.readlink() == original_link_target
+    assert trusted_path.read_bytes() == trusted
+    assert normalized_path.read_bytes() == untrusted
+
+
 @pytest.mark.parametrize("suffix", [".bin", ".PT", ""])
 def test_unsupported_override_suffix_is_rejected_without_modification(
     monkeypatch, tmp_path, smi_entry, suffix

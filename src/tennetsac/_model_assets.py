@@ -167,7 +167,7 @@ def _resolved(
             )
         )
     return ResolvedModelAsset(
-        path=Path(os.path.abspath(os.fspath(path))),
+        path=path.absolute(),
         sha256=actual,
         format=format_name,
         is_legacy=is_legacy,
