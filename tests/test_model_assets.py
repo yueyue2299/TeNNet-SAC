@@ -136,7 +136,7 @@ def test_offline_cache_miss_is_actionable_and_never_opens_network(
     assert "model-smi-ted-light-v1" in message
     assert "https://github.com/" in message
     assert str(asset_cache_path(model_manifest.external_model("smi-ted-light"))) in message
-    assert "1eda6afcb37fcaa85c6303ed57decf0b84294f9bb8ccc79538f9e1c22701acf4" in message
+    assert "566c828ab592a4bfd9050906e4d7f64273a9a27517bef175b00dbed38eec94fc" in message
     assert "python -m tennetsac.model_assets download smi-ted-light" in message
     assert "TENNETSAC_SMI_TED_CHECKPOINT" in message
     assert network_calls == []

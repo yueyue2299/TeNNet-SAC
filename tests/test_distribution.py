@@ -64,7 +64,7 @@ def _manifest_bytes():
                     "release_tag": "model-smi-ted-light-v1",
                     "url": "https://github.com/yueyue2299/TeNNet-SAC/releases/download/model-smi-ted-light-v1/smi-ted-light-inference-v1.safetensors",
                     "filename": "smi-ted-light-inference-v1.safetensors",
-                    "sha256": "1eda6afcb37fcaa85c6303ed57decf0b84294f9bb8ccc79538f9e1c22701acf4",
+                    "sha256": "566c828ab592a4bfd9050906e4d7f64273a9a27517bef175b00dbed38eec94fc",
                     "state_tensor_count": 224,
                     "state_tensor_bytes": 656641536,
                     "vocab_size": 2393,
