@@ -31,6 +31,8 @@ dependencies = [
   "tokenizers",
   "accelerate",
   "torch>=2.1.2",
+  "platformdirs",
+  "filelock",
 ]
 
 [project.optional-dependencies]

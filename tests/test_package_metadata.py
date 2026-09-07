@@ -16,8 +16,13 @@ import sys
 import tennetsac
 assert "tennetsac.runtime" not in sys.modules
 assert "tennetsac.core" not in sys.modules
+assert "tennetsac._model_assets" not in sys.modules
+assert "tennetsac.model_assets" not in sys.modules
 assert "torch" not in sys.modules
 assert "transformers" not in sys.modules
+assert "platformdirs" not in sys.modules
+assert "filelock" not in sys.modules
+assert "safetensors" not in sys.modules
 assert set(tennetsac.__all__) == {
     "profile",
     "binary_lng",
