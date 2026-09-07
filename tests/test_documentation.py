@@ -20,6 +20,7 @@ def test_readme_documents_the_public_package_and_notebook_location() -> None:
 
 def test_readme_documents_the_smi_ted_asset_workflow_and_immutable_updates() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    normalized_readme = " ".join(readme.split())
 
     required_facts = {
         "python -m tennetsac.model_assets download smi-ted-light",
@@ -36,6 +37,10 @@ def test_readme_documents_the_smi_ted_asset_workflow_and_immutable_updates() -> 
     }
 
     assert not sorted(fact for fact in required_facts if fact not in readme)
+    assert (
+        "run `python -m tennetsac.model_assets download smi-ted-light` while "
+        "online, then set `TENNETSAC_OFFLINE=1`"
+    ) in normalized_readme
 
 
 def _notebook() -> dict:

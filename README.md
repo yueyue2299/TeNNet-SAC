@@ -141,10 +141,10 @@ python -m tennetsac.model_assets verify smi-ted-light
 
 `TENNETSAC_CACHE_DIR` changes the cache root. Set
 `TENNETSAC_SMI_TED_CHECKPOINT` to use an explicit local checkpoint instead of
-the cache; the path remains user-owned and is never changed by TeNNet-SAC. Set
-`TENNETSAC_OFFLINE=1` to forbid network access entirely. In offline mode,
-prefetch the asset with the `download` command first, or provide the explicit
-checkpoint override.
+the cache; the path remains user-owned and is never changed by TeNNet-SAC. For
+an offline workflow, run `python -m tennetsac.model_assets download smi-ted-light`
+while online, then set `TENNETSAC_OFFLINE=1` before a prediction or `verify`
+command. Alternatively, provide the explicit checkpoint override.
 
 The temporary `.pt` override is supported only for the exact pinned legacy IBM
 checkpoint. It emits a `FutureWarning`, uses more memory, and will be removed
