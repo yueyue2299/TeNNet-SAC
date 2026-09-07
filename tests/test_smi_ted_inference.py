@@ -2,19 +2,25 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 import torch
+from safetensors.torch import save_file
 
 from tennetsac.smi_ted_light.load import Smi_ted
 from tennetsac.smi_ted_light.tokenizer import MolTranBertTokenizer
 
 
 @pytest.fixture
-def tiny_tokenizer(tmp_path):
-    vocab = tmp_path / "vocab.txt"
-    vocab.write_text(
+def tiny_vocab_path(tmp_path):
+    vocab_path = tmp_path / "vocab.txt"
+    vocab_path.write_text(
         "<bos>\n<eos>\n<pad>\n<mask>\nC\nO\nc\n1\n",
         encoding="utf-8",
     )
-    return MolTranBertTokenizer(vocab_file=str(vocab))
+    return vocab_path
+
+
+@pytest.fixture
+def tiny_tokenizer(tiny_vocab_path):
+    return MolTranBertTokenizer(vocab_file=str(tiny_vocab_path))
 
 
 @pytest.fixture
@@ -28,6 +34,225 @@ def tiny_config():
         "d_dropout": 0.0,
         "n_output": 1,
     }
+
+
+@pytest.fixture
+def tiny_model_factory(tiny_tokenizer, tiny_config):
+    from tennetsac.smi_ted_light.inference import SmiTedInferenceModel
+
+    return lambda: SmiTedInferenceModel(tiny_tokenizer, tiny_config)
+
+
+@pytest.fixture
+def tiny_model_entry(tiny_model_factory, tiny_config):
+    state = tiny_model_factory().state_dict()
+    return {
+        "architecture": {
+            name: tiny_config[name]
+            for name in ("n_layer", "n_head", "n_embd", "max_len", "num_feats")
+        },
+        "vocab_size": 8,
+        "state_tensor_count": len(state),
+        "state_tensor_bytes": sum(
+            tensor.numel() * tensor.element_size() for tensor in state.values()
+        ),
+    }
+
+
+def test_safetensors_metadata_is_exact_and_has_no_self_digest(tiny_model_entry):
+    from tennetsac.smi_ted_light.asset_contract import (
+        expected_safetensors_metadata,
+    )
+
+    assert expected_safetensors_metadata(tiny_model_entry) == {
+        "format": "tennetsac-smi-ted-inference",
+        "format_version": "1",
+        "upstream_repository": "ibm-research/materials.smi-ted",
+        "upstream_revision": "414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
+        "upstream_filename": "smi-ted-Light_40.pt",
+        "upstream_sha256": (
+            "baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375"
+        ),
+        "pruning_rule_version": "1",
+        "included_prefixes": (
+            '["encoder.tok_emb.","encoder.blocks.",'
+            '"decoder.autoencoder.encoder."]'
+        ),
+        "key_mapping": (
+            '{"decoder.autoencoder.encoder.":"projector.",'
+            '"encoder.blocks.":"encoder.blocks.",'
+            '"encoder.tok_emb.":"encoder.tok_emb."}'
+        ),
+        "n_layer": "1",
+        "n_head": "2",
+        "n_embd": "4",
+        "max_len": "12",
+        "num_feats": "4",
+        "vocab_name": "smi-ted-regex-v1",
+        "vocab_size": "8",
+        "vocab_sha256": (
+            "8576b60e838336837f9e894457ef144f440c4d31bc8ceda2315fb5b28a6dfd95"
+        ),
+        "state_tensor_count": str(tiny_model_entry["state_tensor_count"]),
+        "state_tensor_bytes": str(tiny_model_entry["state_tensor_bytes"]),
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation, expected",
+    [
+        (lambda state, metadata: state.pop(next(iter(state))), "missing keys"),
+        (
+            lambda state, metadata: state.update(
+                {"unexpected.weight": torch.zeros(1)}
+            ),
+            "unexpected keys",
+        ),
+        (
+            lambda state, metadata: metadata.update(format_version="2"),
+            "format_version",
+        ),
+        (
+            lambda state, metadata: metadata.update(vocab_size="999"),
+            "vocab_size",
+        ),
+    ],
+)
+def test_strict_loader_rejects_incompatible_asset(
+    tmp_path,
+    tiny_model_entry,
+    tiny_model_factory,
+    tiny_vocab_path,
+    mutation,
+    expected,
+):
+    from tennetsac.smi_ted_light.asset_contract import (
+        expected_safetensors_metadata,
+    )
+    from tennetsac.smi_ted_light.inference import load_smi_ted_inference
+
+    model = tiny_model_factory()
+    state = {name: tensor.clone() for name, tensor in model.state_dict().items()}
+    metadata = expected_safetensors_metadata(tiny_model_entry)
+    mutation(state, metadata)
+    checkpoint = tmp_path / "invalid.safetensors"
+    save_file(state, checkpoint, metadata=metadata)
+
+    with pytest.raises(ValueError, match=expected):
+        load_smi_ted_inference(checkpoint, tiny_vocab_path, tiny_model_entry)
+
+
+@pytest.mark.parametrize(
+    "mutation, expected",
+    [
+        (
+            lambda state: state.update(
+                {"encoder.tok_emb.weight": state["encoder.tok_emb.weight"].flatten()}
+            ),
+            "shape",
+        ),
+        (
+            lambda state: state.update(
+                {"encoder.tok_emb.weight": state["encoder.tok_emb.weight"].double()}
+            ),
+            "dtype",
+        ),
+    ],
+)
+def test_strict_loader_rejects_tensor_contract_mismatch(
+    tmp_path,
+    tiny_model_entry,
+    tiny_model_factory,
+    tiny_vocab_path,
+    mutation,
+    expected,
+):
+    from tennetsac.smi_ted_light.asset_contract import (
+        expected_safetensors_metadata,
+    )
+    from tennetsac.smi_ted_light.inference import load_smi_ted_inference
+
+    state = {
+        name: tensor.clone()
+        for name, tensor in tiny_model_factory().state_dict().items()
+    }
+    mutation(state)
+    checkpoint = tmp_path / "invalid-tensor.safetensors"
+    save_file(
+        state,
+        checkpoint,
+        metadata=expected_safetensors_metadata(tiny_model_entry),
+    )
+
+    with pytest.raises(ValueError, match=expected):
+        load_smi_ted_inference(checkpoint, tiny_vocab_path, tiny_model_entry)
+
+
+def test_strict_loader_rejects_declared_tensor_byte_mismatch(
+    tmp_path, tiny_model_entry, tiny_model_factory, tiny_vocab_path
+):
+    from tennetsac.smi_ted_light.asset_contract import (
+        expected_safetensors_metadata,
+    )
+    from tennetsac.smi_ted_light.inference import load_smi_ted_inference
+
+    incompatible_entry = dict(tiny_model_entry)
+    incompatible_entry["state_tensor_bytes"] += 1
+    state = {
+        name: tensor.clone()
+        for name, tensor in tiny_model_factory().state_dict().items()
+    }
+    checkpoint = tmp_path / "invalid-bytes.safetensors"
+    save_file(
+        state,
+        checkpoint,
+        metadata=expected_safetensors_metadata(incompatible_entry),
+    )
+
+    with pytest.raises(ValueError, match="state tensor bytes"):
+        load_smi_ted_inference(checkpoint, tiny_vocab_path, incompatible_entry)
+
+
+def test_strict_loader_loads_valid_safetensors_without_torch_load(
+    tmp_path,
+    tiny_model_entry,
+    tiny_model_factory,
+    tiny_vocab_path,
+    monkeypatch,
+):
+    from tennetsac.smi_ted_light.asset_contract import (
+        expected_safetensors_metadata,
+    )
+    from tennetsac.smi_ted_light.inference import (
+        SmiTedInferenceModel,
+        load_smi_ted_inference,
+    )
+
+    expected_state = {
+        name: tensor.clone()
+        for name, tensor in tiny_model_factory().state_dict().items()
+    }
+    checkpoint = tmp_path / "valid.safetensors"
+    save_file(
+        expected_state,
+        checkpoint,
+        metadata=expected_safetensors_metadata(tiny_model_entry),
+    )
+    monkeypatch.setattr(
+        torch,
+        "load",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("torch.load must not be called")
+        ),
+    )
+
+    loaded = load_smi_ted_inference(
+        checkpoint, tiny_vocab_path, tiny_model_entry
+    )
+
+    assert isinstance(loaded, SmiTedInferenceModel)
+    for name, tensor in loaded.state_dict().items():
+        assert torch.equal(tensor, expected_state[name])
 
 
 def test_production_contract_is_exact():

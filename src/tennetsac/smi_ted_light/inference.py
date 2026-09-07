@@ -11,11 +11,17 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from safetensors import safe_open
+from safetensors.torch import load_file
 
-from .asset_contract import SMI_TED_LIGHT_CONTRACT
+from .asset_contract import (
+    SMI_TED_LIGHT_CONTRACT,
+    expected_safetensors_metadata,
+)
 from .fast_transformers.feature_maps import GeneralizedRandomFeatures
 from .fast_transformers.masking import LengthMask
 from .load import RotateEncoderBuilder, normalize_smiles
+from .tokenizer import MolTranBertTokenizer
 
 
 def production_config() -> dict[str, int | float]:
@@ -150,3 +156,85 @@ class SmiTedInferenceModel(nn.Module):
         if return_torch:
             return torch.tensor(result)
         return pd.DataFrame(result)
+
+
+def _metadata_mismatch_message(actual, expected):
+    mismatches = []
+    for name in sorted(expected.keys() | actual.keys()):
+        if name not in actual:
+            mismatches.append(f"missing {name}")
+        elif name not in expected:
+            mismatches.append(f"unexpected {name}")
+        elif actual[name] != expected[name]:
+            mismatches.append(
+                f"{name} expected {expected[name]!r}, got {actual[name]!r}"
+            )
+    return "; ".join(mismatches)
+
+
+def load_smi_ted_inference(
+    checkpoint_path, vocab_path, asset_entry
+) -> SmiTedInferenceModel:
+    expected_metadata = expected_safetensors_metadata(asset_entry)
+    with safe_open(
+        checkpoint_path, framework="pt", device="cpu"
+    ) as checkpoint:
+        actual_metadata = checkpoint.metadata() or {}
+        if actual_metadata != expected_metadata:
+            details = _metadata_mismatch_message(
+                actual_metadata, expected_metadata
+            )
+            raise ValueError(f"safetensors metadata mismatch: {details}")
+        actual_keys = set(checkpoint.keys())
+
+    tokenizer = MolTranBertTokenizer(vocab_file=str(vocab_path))
+    if len(tokenizer) != asset_entry["vocab_size"]:
+        raise ValueError(
+            "vocab_size mismatch: "
+            f"expected {asset_entry['vocab_size']}, got {len(tokenizer)}"
+        )
+
+    config = dict(asset_entry["architecture"])
+    config["d_dropout"] = 0.2
+    model = SmiTedInferenceModel(tokenizer, config)
+    expected_state = model.state_dict()
+    expected_keys = set(expected_state)
+    missing_keys = sorted(expected_keys - actual_keys)
+    unexpected_keys = sorted(actual_keys - expected_keys)
+    if missing_keys:
+        raise ValueError(f"safetensors missing keys: {missing_keys}")
+    if unexpected_keys:
+        raise ValueError(f"safetensors unexpected keys: {unexpected_keys}")
+    if len(actual_keys) != asset_entry["state_tensor_count"]:
+        raise ValueError(
+            "safetensors state tensor count mismatch: "
+            f"expected {asset_entry['state_tensor_count']}, got {len(actual_keys)}"
+        )
+
+    state = load_file(checkpoint_path, device="cpu")
+    for name, expected_tensor in expected_state.items():
+        actual_tensor = state[name]
+        if actual_tensor.shape != expected_tensor.shape:
+            raise ValueError(
+                f"safetensors shape mismatch for {name}: "
+                f"expected {tuple(expected_tensor.shape)}, "
+                f"got {tuple(actual_tensor.shape)}"
+            )
+        if actual_tensor.dtype != expected_tensor.dtype:
+            raise ValueError(
+                f"safetensors dtype mismatch for {name}: "
+                f"expected {expected_tensor.dtype}, got {actual_tensor.dtype}"
+            )
+
+    actual_tensor_bytes = sum(
+        tensor.numel() * tensor.element_size() for tensor in state.values()
+    )
+    if actual_tensor_bytes != asset_entry["state_tensor_bytes"]:
+        raise ValueError(
+            "safetensors state tensor bytes mismatch: "
+            f"expected {asset_entry['state_tensor_bytes']}, "
+            f"got {actual_tensor_bytes}"
+        )
+
+    model.load_state_dict(state, strict=True)
+    return model

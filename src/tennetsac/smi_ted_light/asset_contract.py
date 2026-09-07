@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
@@ -57,3 +58,35 @@ SMI_TED_LIGHT_CONTRACT = SmiTedAssetContract(
     parameter_bytes=656_541_696,
     buffer_bytes=99_840,
 )
+
+
+def expected_safetensors_metadata(asset_entry) -> dict[str, str]:
+    return {
+        "format": "tennetsac-smi-ted-inference",
+        "format_version": "1",
+        "upstream_repository": (
+            SMI_TED_LIGHT_CONTRACT.parent_repository_canonical
+        ),
+        "upstream_revision": SMI_TED_LIGHT_CONTRACT.parent_revision,
+        "upstream_filename": SMI_TED_LIGHT_CONTRACT.parent_filename,
+        "upstream_sha256": SMI_TED_LIGHT_CONTRACT.parent_sha256,
+        "pruning_rule_version": "1",
+        "included_prefixes": json.dumps(
+            list(SMI_TED_LIGHT_CONTRACT.prefix_map), separators=(",", ":")
+        ),
+        "key_mapping": json.dumps(
+            dict(SMI_TED_LIGHT_CONTRACT.prefix_map),
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        "n_layer": str(asset_entry["architecture"]["n_layer"]),
+        "n_head": str(asset_entry["architecture"]["n_head"]),
+        "n_embd": str(asset_entry["architecture"]["n_embd"]),
+        "max_len": str(asset_entry["architecture"]["max_len"]),
+        "num_feats": str(asset_entry["architecture"]["num_feats"]),
+        "vocab_name": SMI_TED_LIGHT_CONTRACT.vocab_name,
+        "vocab_size": str(asset_entry["vocab_size"]),
+        "vocab_sha256": SMI_TED_LIGHT_CONTRACT.vocab_sha256,
+        "state_tensor_count": str(asset_entry["state_tensor_count"]),
+        "state_tensor_bytes": str(asset_entry["state_tensor_bytes"]),
+    }
