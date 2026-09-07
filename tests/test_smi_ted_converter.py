@@ -1,4 +1,5 @@
 import hashlib
+import json
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -410,6 +411,76 @@ def test_write_release_files_preserves_exact_float32_values(tmp_path):
     )
 
 
+def _raw_safetensors_header(path):
+    with path.open("rb") as stream:
+        header_size = int.from_bytes(stream.read(8), "little")
+        return stream.read(header_size)
+
+
+def test_release_payload_is_reproducible_across_mapping_insertion_orders(
+    tmp_path,
+):
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    alpha = torch.tensor([1.25, -0.0], dtype=torch.float32)
+    zeta = torch.tensor([-3.5, 9.0], dtype=torch.float32)
+    first_state = {"zeta.weight": zeta, "alpha.weight": alpha}
+    second_state = {"alpha.weight": alpha.clone(), "zeta.weight": zeta.clone()}
+    first_metadata = {"zeta": "last", "alpha": "first"}
+    second_metadata = {"alpha": "first", "zeta": "last"}
+
+    first = converter.write_release_payload(
+        first_dir, first_state, first_metadata
+    )
+    second = converter.write_release_payload(
+        second_dir, second_state, second_metadata
+    )
+
+    assert first.artifact_sha256 == second.artifact_sha256
+    assert first.artifact_path.read_bytes() == second.artifact_path.read_bytes()
+    for result in (first, second):
+        raw_header = _raw_safetensors_header(result.artifact_path)
+        header = json.loads(raw_header)
+        assert list(header) == ["__metadata__", "alpha.weight", "zeta.weight"]
+        assert list(header["__metadata__"]) == ["alpha", "zeta"]
+        assert raw_header.rstrip(b" ") == json.dumps(
+            header,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        reloaded = load_file(result.artifact_path, device="cpu")
+        assert torch.equal(reloaded["alpha.weight"], alpha)
+        assert torch.equal(reloaded["zeta.weight"], zeta)
+
+
+def test_header_canonicalization_removes_temp_file_when_replace_fails(
+    tmp_path, monkeypatch
+):
+    artifact_path = tmp_path / "payload.safetensors"
+    converter.save_file(
+        {"zeta.weight": torch.ones(1), "alpha.weight": torch.zeros(1)},
+        artifact_path,
+        metadata={"zeta": "last", "alpha": "first"},
+    )
+    original_bytes = artifact_path.read_bytes()
+
+    def reject_replace(temp_path, destination):
+        assert destination == artifact_path
+        assert Path(temp_path).parent == artifact_path.parent
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(converter.os, "replace", reject_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        converter._canonicalize_safetensors_header(artifact_path)
+
+    assert artifact_path.read_bytes() == original_bytes
+    assert list(tmp_path.iterdir()) == [artifact_path]
+
+
 def test_write_release_files_copies_license_and_hashes_other_three_files(tmp_path):
     output_dir = tmp_path / "candidate"
     output_dir.mkdir()
@@ -616,6 +687,35 @@ def test_build_asset_removes_new_output_after_any_failure(
         )
 
     with pytest.raises((OSError, ValueError)):
+        converter.build_asset(tmp_path / "parent.pt", output_dir, "abc123")
+
+    assert not output_dir.exists()
+
+
+def test_build_asset_removes_output_after_header_canonicalization_failure(
+    tmp_path, monkeypatch
+):
+    output_dir = tmp_path / "candidate"
+    checkpoint = _parent_checkpoint()
+    monkeypatch.setattr(
+        converter, "load_verified_parent", lambda path: checkpoint
+    )
+    monkeypatch.setattr(
+        converter,
+        "_canonicalize_safetensors_header",
+        lambda path: (_ for _ in ()).throw(OSError("replace failed")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        converter, "load_smi_ted_inference", lambda *args: object()
+    )
+    monkeypatch.setattr(
+        converter,
+        "_verified_inference_summary",
+        lambda model: _production_verification_summary(),
+    )
+
+    with pytest.raises(OSError, match="replace failed"):
         converter.build_asset(tmp_path / "parent.pt", output_dir, "abc123")
 
     assert not output_dir.exists()
