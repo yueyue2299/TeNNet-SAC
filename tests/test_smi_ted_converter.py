@@ -292,18 +292,37 @@ def _controlled_metadata():
     }
 
 
+def _production_verification_summary():
+    return converter.VerificationSummary(
+        tensor_count=224,
+        tensor_bytes=656_641_536,
+        parameter_bytes=656_541_696,
+        buffer_bytes=99_840,
+    )
+
+
+def _write_controlled_release(output_dir, parent):
+    result = converter.write_release_payload(
+        output_dir,
+        _controlled_release_state(),
+        _controlled_metadata(),
+    )
+    converter.finalize_release_files(
+        output_dir,
+        result,
+        parent_path=parent,
+        converter_commit="abc123def456",
+        verification=_production_verification_summary(),
+    )
+    return result
+
+
 def test_write_release_files_emits_exact_verified_release_set(tmp_path):
     output_dir = tmp_path / "candidate"
     output_dir.mkdir()
     parent = tmp_path / "smi-ted-Light_40.pt"
 
-    result = converter.write_release_files(
-        output_dir,
-        _controlled_release_state(),
-        _controlled_metadata(),
-        parent_path=parent,
-        converter_commit="abc123def456",
-    )
+    result = _write_controlled_release(output_dir, parent)
 
     expected_names = {
         "smi-ted-light-inference-v1.safetensors",
@@ -352,12 +371,10 @@ def test_write_release_files_rejects_non_float32_retained_tensor(
             f"torch.float32, got {tensor.dtype}"
         ),
     ):
-        converter.write_release_files(
+        converter.write_release_payload(
             output_dir,
             {"encoder.tok_emb.weight": tensor},
             _controlled_metadata(),
-            parent_path=tmp_path / "smi-ted-Light_40.pt",
-            converter_commit="abc123def456",
         )
 
     assert list(output_dir.iterdir()) == []
@@ -376,12 +393,10 @@ def test_write_release_files_preserves_exact_float32_values(tmp_path):
     source = source_base[:, ::2]
     assert not source.is_contiguous()
 
-    result = converter.write_release_files(
+    result = converter.write_release_payload(
         output_dir,
         {"encoder.tok_emb.weight": source},
         _controlled_metadata(),
-        parent_path=tmp_path / "smi-ted-Light_40.pt",
-        converter_commit="abc123def456",
     )
 
     reloaded = load_file(result.artifact_path, device="cpu")[
@@ -398,13 +413,7 @@ def test_write_release_files_preserves_exact_float32_values(tmp_path):
 def test_write_release_files_copies_license_and_hashes_other_three_files(tmp_path):
     output_dir = tmp_path / "candidate"
     output_dir.mkdir()
-    converter.write_release_files(
-        output_dir,
-        _controlled_release_state(),
-        _controlled_metadata(),
-        parent_path=tmp_path / "smi-ted-Light_40.pt",
-        converter_commit="abc123def456",
-    )
+    _write_controlled_release(output_dir, tmp_path / "smi-ted-Light_40.pt")
 
     repository_license = (
         Path(converter.__file__).resolve().parents[1]
@@ -442,13 +451,7 @@ def test_write_release_files_records_complete_provenance(tmp_path):
     output_dir = tmp_path / "candidate"
     output_dir.mkdir()
     parent = tmp_path / "smi-ted-Light_40.pt"
-    converter.write_release_files(
-        output_dir,
-        _controlled_release_state(),
-        _controlled_metadata(),
-        parent_path=parent,
-        converter_commit="abc123def456",
-    )
+    _write_controlled_release(output_dir, parent)
 
     provenance = (output_dir / "SMI_TED_INFERENCE_PROVENANCE.md").read_text(
         encoding="utf-8"
@@ -472,8 +475,77 @@ def test_write_release_files_records_complete_provenance(tmp_path):
         "decoder.lang_model.",
         "inference-only derivative",
         "values and float32 dtype were preserved without dtype conversion",
+        "n_layer=12",
+        "n_head=12",
+        "n_embd=768",
+        "max_len=202",
+        "num_feats=32",
+        "Strict production inference-loader reload: PASS",
+        "224 tensors",
+        "656,641,536 tensor bytes",
+        "656,541,696 parameter bytes",
+        "99,840 buffer bytes",
     ):
         assert required_text in provenance
+    assert "bitwise" not in provenance.lower()
+    assert "golden" not in provenance.lower()
+
+
+def test_build_asset_reloads_before_finalizing_provenance_and_checksums(
+    tmp_path, monkeypatch
+):
+    output_dir = tmp_path / "candidate"
+    checkpoint = _parent_checkpoint()
+    monkeypatch.setattr(
+        converter, "load_verified_parent", lambda path: checkpoint
+    )
+    events = []
+
+    def record_reload(checkpoint_path, vocab_path, asset_entry):
+        events.append("reload")
+        assert checkpoint_path.is_file()
+        assert (output_dir / "IBM-materials-APACHE-2.0.txt").is_file()
+        assert not (output_dir / "SMI_TED_INFERENCE_PROVENANCE.md").exists()
+        assert not (output_dir / "SHA256SUMS").exists()
+        return object()
+
+    monkeypatch.setattr(converter, "load_smi_ted_inference", record_reload)
+    monkeypatch.setattr(
+        converter,
+        "_verified_inference_summary",
+        lambda model: _production_verification_summary(),
+        raising=False,
+    )
+
+    converter.build_asset(tmp_path / "parent.pt", output_dir, "abc123")
+
+    assert events == ["reload"]
+    assert (output_dir / "SMI_TED_INFERENCE_PROVENANCE.md").is_file()
+    assert (output_dir / "SHA256SUMS").is_file()
+
+
+def test_reload_failure_occurs_before_provenance_and_checksum_finalization(
+    tmp_path, monkeypatch
+):
+    output_dir = tmp_path / "candidate"
+    checkpoint = _parent_checkpoint()
+    monkeypatch.setattr(
+        converter, "load_verified_parent", lambda path: checkpoint
+    )
+
+    def reject_reload(checkpoint_path, vocab_path, asset_entry):
+        assert checkpoint_path.is_file()
+        assert (output_dir / "IBM-materials-APACHE-2.0.txt").is_file()
+        assert not (output_dir / "SMI_TED_INFERENCE_PROVENANCE.md").exists()
+        assert not (output_dir / "SHA256SUMS").exists()
+        raise ValueError("reload rejected")
+
+    monkeypatch.setattr(converter, "load_smi_ted_inference", reject_reload)
+
+    with pytest.raises(ValueError, match="reload rejected"):
+        converter.build_asset(tmp_path / "parent.pt", output_dir, "abc123")
+
+    assert not output_dir.exists()
 
 
 def test_build_asset_reloads_written_asset_and_returns_frozen_result(
@@ -492,6 +564,11 @@ def test_build_asset_reloads_written_asset_and_returns_frozen_result(
         return object()
 
     monkeypatch.setattr(converter, "load_smi_ted_inference", record_reload)
+    monkeypatch.setattr(
+        converter,
+        "_verified_inference_summary",
+        lambda model: _production_verification_summary(),
+    )
 
     result = converter.build_asset(parent, output_dir, "abc123def456")
 

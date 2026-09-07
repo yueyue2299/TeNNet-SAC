@@ -41,6 +41,14 @@ class BuildResult:
     tensor_bytes: int
 
 
+@dataclass(frozen=True)
+class VerificationSummary:
+    tensor_count: int
+    tensor_bytes: int
+    parameter_bytes: int
+    buffer_bytes: int
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -169,6 +177,7 @@ def _provenance_text(
     output_dir: Path,
     converter_commit: str,
     artifact_sha256: str,
+    verification: VerificationSummary,
 ) -> str:
     command = " ".join(
         shlex.quote(value)
@@ -212,6 +221,22 @@ imply IBM endorsement.
 - Derived artifact: `{ARTIFACT_FILENAME}`
 - Derived artifact SHA-256: `{artifact_sha256}`
 
+## Architecture
+
+- `n_layer={contract.architecture['n_layer']}`
+- `n_head={contract.architecture['n_head']}`
+- `n_embd={contract.architecture['n_embd']}`
+- `max_len={contract.architecture['max_len']}`
+- `num_feats={contract.architecture['num_feats']}`
+
+## Converter-local verification
+
+- Strict production inference-loader reload: PASS
+- Verified state: `{verification.tensor_count:,} tensors`
+- Verified tensor storage: `{verification.tensor_bytes:,} tensor bytes`
+- Verified parameters: `{verification.parameter_bytes:,} parameter bytes`
+- Verified buffers: `{verification.buffer_bytes:,} buffer bytes`
+
 Reproduction command:
 
 ```console
@@ -233,16 +258,12 @@ unrecognized state are not included.
 """
 
 
-def write_release_files(
+def write_release_payload(
     output_dir: Path | str,
     state: Mapping[str, torch.Tensor],
     metadata: Mapping[str, str],
-    *,
-    parent_path: Path | str,
-    converter_commit: str,
 ) -> BuildResult:
     output_dir = Path(output_dir)
-    parent_path = Path(parent_path)
     release_state = _prepare_release_state(state)
     artifact_path = output_dir / ARTIFACT_FILENAME
     save_file(release_state, artifact_path, metadata=dict(metadata))
@@ -254,23 +275,6 @@ def write_release_files(
         license_path,
     )
 
-    provenance_path = output_dir / PROVENANCE_FILENAME
-    provenance_path.write_text(
-        _provenance_text(
-            parent_path=parent_path,
-            output_dir=output_dir,
-            converter_commit=converter_commit,
-            artifact_sha256=artifact_sha256,
-        ),
-        encoding="utf-8",
-    )
-
-    checksum_paths = (artifact_path, license_path, provenance_path)
-    checksum_text = "".join(
-        f"{sha256_file(path)}  {path.name}\n" for path in checksum_paths
-    )
-    (output_dir / CHECKSUM_FILENAME).write_text(checksum_text, encoding="utf-8")
-
     tensor_bytes = sum(
         tensor.numel() * tensor.element_size() for tensor in release_state.values()
     )
@@ -281,6 +285,66 @@ def write_release_files(
         tensor_count=len(release_state),
         tensor_bytes=tensor_bytes,
     )
+
+
+def _verified_inference_summary(model: torch.nn.Module) -> VerificationSummary:
+    state = model.state_dict()
+    summary = VerificationSummary(
+        tensor_count=len(state),
+        tensor_bytes=sum(
+            tensor.numel() * tensor.element_size() for tensor in state.values()
+        ),
+        parameter_bytes=sum(
+            tensor.numel() * tensor.element_size() for tensor in model.parameters()
+        ),
+        buffer_bytes=sum(
+            tensor.numel() * tensor.element_size() for tensor in model.buffers()
+        ),
+    )
+    expected = {
+        "tensor_count": SMI_TED_LIGHT_CONTRACT.tensor_count,
+        "tensor_bytes": SMI_TED_LIGHT_CONTRACT.tensor_bytes,
+        "parameter_bytes": SMI_TED_LIGHT_CONTRACT.parameter_bytes,
+        "buffer_bytes": SMI_TED_LIGHT_CONTRACT.buffer_bytes,
+    }
+    for field, expected_value in expected.items():
+        actual_value = getattr(summary, field)
+        if actual_value != expected_value:
+            raise ValueError(
+                f"reloaded inference {field} mismatch: "
+                f"expected {expected_value}, got {actual_value}"
+            )
+    return summary
+
+
+def finalize_release_files(
+    output_dir: Path | str,
+    result: BuildResult,
+    *,
+    parent_path: Path | str,
+    converter_commit: str,
+    verification: VerificationSummary,
+) -> None:
+    output_dir = Path(output_dir)
+    parent_path = Path(parent_path)
+    provenance_path = output_dir / PROVENANCE_FILENAME
+    provenance_path.write_text(
+        _provenance_text(
+            parent_path=parent_path,
+            output_dir=output_dir,
+            converter_commit=converter_commit,
+            artifact_sha256=result.artifact_sha256,
+            verification=verification,
+        ),
+        encoding="utf-8",
+    )
+
+    license_path = output_dir / LICENSE_FILENAME
+    checksum_paths = (result.artifact_path, license_path, provenance_path)
+    checksum_text = "".join(
+        f"{sha256_file(path)}  {path.name}\n" for path in checksum_paths
+    )
+    (output_dir / CHECKSUM_FILENAME).write_text(checksum_text, encoding="utf-8")
 
 
 def build_asset(
@@ -310,12 +374,10 @@ def build_asset(
 
     output_dir.mkdir()
     try:
-        result = write_release_files(
+        result = write_release_payload(
             output_dir,
             release_state,
             metadata,
-            parent_path=parent_path,
-            converter_commit=converter_commit,
         )
         vocab_path = (
             REPOSITORY_ROOT
@@ -324,7 +386,17 @@ def build_asset(
             / "smi_ted_light"
             / "bert_vocab_curated.txt"
         )
-        load_smi_ted_inference(result.artifact_path, vocab_path, asset_entry)
+        model = load_smi_ted_inference(
+            result.artifact_path, vocab_path, asset_entry
+        )
+        verification = _verified_inference_summary(model)
+        finalize_release_files(
+            output_dir,
+            result,
+            parent_path=parent_path,
+            converter_commit=converter_commit,
+            verification=verification,
+        )
         return result
     except BaseException:
         shutil.rmtree(output_dir)
