@@ -269,11 +269,11 @@ def test_build_asset_refuses_preexisting_output_before_parent_access(
 
 
 def _controlled_release_state():
-    base = torch.arange(8, dtype=torch.float64).reshape(2, 4)
+    base = torch.arange(8, dtype=torch.float32).reshape(2, 4)
     return {
         "encoder.tok_emb.weight": base[:, ::2],
-        "encoder.blocks.layer.weight": torch.ones(2, dtype=torch.float64),
-        "projector.fc1.weight": torch.ones(3, dtype=torch.float64),
+        "encoder.blocks.layer.weight": torch.ones(2, dtype=torch.float32),
+        "projector.fc1.weight": torch.ones(3, dtype=torch.float32),
     }
 
 
@@ -321,6 +321,71 @@ def test_write_release_files_emits_exact_verified_release_set(tmp_path):
     assert all(tensor.is_contiguous() for tensor in written_state.values())
     with safe_open(result.artifact_path, framework="pt", device="cpu") as handle:
         assert handle.metadata() == _controlled_metadata()
+
+
+@pytest.mark.parametrize(
+    "tensor",
+    [
+        torch.ones(2, dtype=torch.float64),
+        torch.ones(2, dtype=torch.float16),
+        torch.ones(2, dtype=torch.int64),
+        torch.ones(2, dtype=torch.bool),
+    ],
+)
+def test_write_release_files_rejects_non_float32_retained_tensor(
+    tmp_path, tensor
+):
+    output_dir = tmp_path / "candidate"
+    output_dir.mkdir()
+
+    with pytest.raises(
+        TypeError,
+        match=(
+            "retained tensor encoder.tok_emb.weight must have dtype "
+            f"torch.float32, got {tensor.dtype}"
+        ),
+    ):
+        converter.write_release_files(
+            output_dir,
+            {"encoder.tok_emb.weight": tensor},
+            _controlled_metadata(),
+            parent_path=tmp_path / "smi-ted-Light_40.pt",
+            converter_commit="abc123def456",
+        )
+
+    assert list(output_dir.iterdir()) == []
+
+
+def test_write_release_files_preserves_exact_float32_values(tmp_path):
+    output_dir = tmp_path / "candidate"
+    output_dir.mkdir()
+    source_base = torch.tensor(
+        [
+            [0.0, 91.0, -0.0, 92.0],
+            [1.25, 93.0, -3.5, 94.0],
+        ],
+        dtype=torch.float32,
+    )
+    source = source_base[:, ::2]
+    assert not source.is_contiguous()
+
+    result = converter.write_release_files(
+        output_dir,
+        {"encoder.tok_emb.weight": source},
+        _controlled_metadata(),
+        parent_path=tmp_path / "smi-ted-Light_40.pt",
+        converter_commit="abc123def456",
+    )
+
+    reloaded = load_file(result.artifact_path, device="cpu")[
+        "encoder.tok_emb.weight"
+    ]
+    assert reloaded.device.type == "cpu"
+    assert reloaded.is_contiguous()
+    assert reloaded.dtype == torch.float32
+    assert torch.equal(
+        reloaded.view(torch.int32), source.contiguous().view(torch.int32)
+    )
 
 
 def test_write_release_files_copies_license_and_hashes_other_three_files(tmp_path):
@@ -399,6 +464,7 @@ def test_write_release_files_records_complete_provenance(tmp_path):
         "decoder.autoencoder.decoder.",
         "decoder.lang_model.",
         "inference-only derivative",
+        "values and float32 dtype were preserved without dtype conversion",
     ):
         assert required_text in provenance
 

@@ -152,10 +152,15 @@ def select_inference_state(
 def _prepare_release_state(
     state: Mapping[str, torch.Tensor],
 ) -> dict[str, torch.Tensor]:
-    return {
-        name: tensor.detach().to(device="cpu", dtype=torch.float32).contiguous()
-        for name, tensor in state.items()
-    }
+    prepared = {}
+    for name, tensor in state.items():
+        if tensor.dtype != torch.float32:
+            raise TypeError(
+                f"retained tensor {name} must have dtype torch.float32, "
+                f"got {tensor.dtype}"
+            )
+        prepared[name] = tensor.detach().cpu().contiguous()
+    return prepared
 
 
 def _provenance_text(
@@ -221,9 +226,10 @@ Recognized excluded source prefixes:
 
 {excluded}
 
-All retained tensors were detached, moved to CPU, converted to contiguous
-float32 storage, and serialized with safetensors. The reconstruction decoder,
-language-model heads, and other unrecognized state are not included.
+All retained tensor values and float32 dtype were preserved without dtype conversion.
+Tensors were detached, moved to CPU, made contiguous, and serialized with
+safetensors. The reconstruction decoder, language-model heads, and other
+unrecognized state are not included.
 """
 
 
