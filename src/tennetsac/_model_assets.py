@@ -27,6 +27,10 @@ class ModelAssetError(RuntimeError):
     """Raised when an external model asset cannot be safely resolved."""
 
 
+class _DigestMismatch(ModelAssetError):
+    """A completed hash proved that a local asset is corrupt."""
+
+
 @dataclass(frozen=True)
 class ResolvedModelAsset:
     path: Path
@@ -154,7 +158,7 @@ def _resolved(
             _error_message(entry, f"could not be verified ({error})", location=path, expected=expected)
         ) from error
     if actual != expected:
-        raise ModelAssetError(
+        raise _DigestMismatch(
             _error_message(
                 entry,
                 f"has SHA-256 {actual}, which does not match",
@@ -351,7 +355,7 @@ def _resolve_cache_under_lock(
                         format_name=entry["format"],
                         is_legacy=False,
                     )
-                except ModelAssetError as error:
+                except _DigestMismatch as error:
                     corrupt_error = error
                     try:
                         target.unlink()

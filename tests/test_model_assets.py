@@ -410,6 +410,67 @@ def test_corrupt_cache_is_replaced_under_lock(monkeypatch, tmp_path, smi_entry):
     assert target.read_bytes() == data
 
 
+def test_online_verification_io_failure_preserves_cache_and_cause_without_download(
+    monkeypatch, tmp_path, smi_entry
+):
+    data = b"valid cache bytes"
+    entry = _entry_for_bytes(smi_entry, data)
+    _configure_entry(monkeypatch, tmp_path, entry)
+    target = asset_cache_path(entry)
+    target.parent.mkdir(parents=True)
+    target.write_bytes(data)
+    verification_error = OSError("cache read failed")
+    download_calls = []
+
+    def fail_verification(_path, _expected):
+        raise verification_error
+
+    def unexpected_download(*args, **kwargs):
+        download_calls.append((args, kwargs))
+        raise ModelAssetError("download must not run after incomplete verification")
+
+    monkeypatch.setattr(assets, "_sha256", fail_verification)
+    monkeypatch.setattr(assets, "_download_asset", unexpected_download)
+
+    with pytest.raises(ModelAssetError) as captured:
+        resolve_model_asset()
+
+    _assert_actionable_error(captured.value, entry, target)
+    assert captured.value.__cause__ is verification_error
+    assert target.read_bytes() == data
+    assert download_calls == []
+
+
+def test_offline_verification_io_failure_preserves_cache_and_cause_without_network(
+    monkeypatch, tmp_path, smi_entry
+):
+    data = b"valid cache bytes"
+    entry = _entry_for_bytes(smi_entry, data)
+    _configure_entry(monkeypatch, tmp_path, entry)
+    monkeypatch.setenv("TENNETSAC_OFFLINE", "1")
+    target = asset_cache_path(entry)
+    target.parent.mkdir(parents=True)
+    target.write_bytes(data)
+    verification_error = OSError("cache stat failed")
+    network_calls = []
+
+    def fail_verification(_path, _expected):
+        raise verification_error
+
+    monkeypatch.setattr(assets, "_sha256", fail_verification)
+    monkeypatch.setattr(
+        assets, "urlopen", lambda *args, **kwargs: network_calls.append((args, kwargs))
+    )
+
+    with pytest.raises(ModelAssetError) as captured:
+        resolve_model_asset()
+
+    _assert_actionable_error(captured.value, entry, target)
+    assert captured.value.__cause__ is verification_error
+    assert target.read_bytes() == data
+    assert network_calls == []
+
+
 def test_offline_corrupt_cache_is_removed_without_network(
     monkeypatch, tmp_path, smi_entry
 ):
