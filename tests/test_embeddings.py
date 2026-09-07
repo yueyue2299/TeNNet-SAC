@@ -1,3 +1,5 @@
+import torch
+
 from tennetsac.utils import embedding
 
 
@@ -5,6 +7,10 @@ class FakeModel:
     def to(self, device):
         self.device = device
         return self
+
+    def encode(self, smiles, return_torch=False):
+        assert return_torch is True
+        return torch.tensor([[1.0]], device=self.device)
 
 
 def test_chemberta_embedder_forwards_the_pinned_revision(monkeypatch):
@@ -34,7 +40,13 @@ def test_chemberta_embedder_forwards_the_pinned_revision(monkeypatch):
     ]
 
 
-def test_smi_ted_embedder_forwards_pinned_checkpoint_provenance(monkeypatch, tmp_path):
+def test_smi_ted_embedder_forwards_explicit_asset_inputs(monkeypatch, tmp_path):
+    checkpoint = tmp_path / "custom.pt"
+    vocab = tmp_path / "bert_vocab_curated.txt"
+    asset_entry = {
+        "name": "smi-ted-light",
+        "parent": {"sha256": "parent-digest"},
+    }
     calls = []
 
     def fake_load_smi_ted(**kwargs):
@@ -43,43 +55,33 @@ def test_smi_ted_embedder_forwards_pinned_checkpoint_provenance(monkeypatch, tmp
 
     monkeypatch.setattr(embedding, "load_smi_ted", fake_load_smi_ted)
 
-    embedding.SMITEDEmbedder(
-        model_dir=tmp_path,
-        repo_id="ibm/materials.smi-ted",
-        revision="414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
-        ckpt_name="smi-ted-Light_40.pt",
-        expected_sha256="baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375",
+    embedder = embedding.SMITEDEmbedder(
+        checkpoint_path=checkpoint,
+        vocab_path=vocab,
+        asset_entry=asset_entry,
+        device="cpu",
     )
 
-    assert calls == [{
-        "folder": tmp_path,
-        "repo_id": "ibm/materials.smi-ted",
-        "revision": "414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
-        "ckpt_filename": "smi-ted-Light_40.pt",
-        "expected_sha256": "baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375",
-    }]
+    assert calls == [
+        {
+            "checkpoint_path": checkpoint,
+            "vocab_path": vocab,
+            "asset_entry": asset_entry,
+        }
+    ]
+    assert embedder.model.device == "cpu"
 
 
-def test_smi_ted_embedder_uses_a_packaged_vocab_with_external_checkpoint(
-    monkeypatch, tmp_path
-):
-    calls = []
-    vocab = tmp_path / "bert_vocab_curated.txt"
-
-    monkeypatch.setattr(
-        embedding,
-        "load_smi_ted",
-        lambda **kwargs: calls.append(kwargs) or FakeModel(),
+def test_smi_ted_embedder_always_returns_cpu_tensor(monkeypatch, tmp_path):
+    monkeypatch.setattr(embedding, "load_smi_ted", lambda **kwargs: FakeModel())
+    embedder = embedding.SMITEDEmbedder(
+        checkpoint_path=tmp_path / "model.safetensors",
+        vocab_path=tmp_path / "vocab.txt",
+        asset_entry={"parent": {"sha256": "parent-digest"}},
+        device="cpu",
     )
 
-    embedding.SMITEDEmbedder(
-        model_dir=tmp_path / "external-model",
-        repo_id="ibm/materials.smi-ted",
-        revision="414c3ea0a8603ef49d1c5bb3db336e09877c01ce",
-        ckpt_name="smi-ted-Light_40.pt",
-        expected_sha256="baf252dbc081a00c68d2fd6ed8b08a0db0fa15244cfea442d49f0619a3a65375",
-        vocab_filename=vocab,
-    )
+    result = embedder(["CCO"])
 
-    assert calls[0]["folder"] == tmp_path / "external-model"
-    assert calls[0]["vocab_filename"] == vocab
+    assert result.device.type == "cpu"
+    assert torch.equal(result, torch.tensor([[1.0]]))

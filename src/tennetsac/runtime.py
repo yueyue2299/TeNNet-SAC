@@ -2,7 +2,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.resources import as_file, files
-import os
 from pathlib import Path
 from shutil import copyfile
 from tempfile import TemporaryDirectory
@@ -85,10 +84,10 @@ def _build_runtime() -> Runtime:
     from .utils.embedding import ChemBERTaEmbedder, SMITEDEmbedder
     from .utils.model_io import load_all_Gamma_models, load_model
     from .model_manifest import external_model
+    from . import _model_assets
 
     with _checkpoint_path(_checkpoint_root()) as checkpoint_root:
         chemberta = external_model("chemberta2")
-        smi_ted = external_model("smi-ted-light")
         try:
             chemberta_embedder = ChemBERTaEmbedder(
                 model_name=chemberta["source"], revision=chemberta["revision"]
@@ -96,32 +95,13 @@ def _build_runtime() -> Runtime:
         except Exception as error:
             raise RuntimeError("Failed to initialize ChemBERTa2 embedder") from error
         try:
-            checkpoint_override = os.environ.get("TENNETSAC_SMI_TED_CHECKPOINT")
-            if checkpoint_override:
-                checkpoint_path = Path(checkpoint_override)
-                if not checkpoint_path.is_file():
-                    raise FileNotFoundError(
-                        "TENNETSAC_SMI_TED_CHECKPOINT must name a file: "
-                        f"{checkpoint_path}"
-                    )
-                with _smi_ted_vocab_dir() as vocab_dir:
-                    smi_ted_embedder = SMITEDEmbedder(
-                        model_dir=checkpoint_path.parent,
-                        repo_id=smi_ted["source"],
-                        revision=smi_ted["revision"],
-                        ckpt_name=checkpoint_path.name,
-                        expected_sha256=smi_ted["sha256"],
-                        vocab_filename=vocab_dir / "bert_vocab_curated.txt",
-                    )
-            else:
-                with _smi_ted_vocab_dir() as vocab_dir:
-                    smi_ted_embedder = SMITEDEmbedder(
-                        model_dir=vocab_dir,
-                        repo_id=smi_ted["source"],
-                        revision=smi_ted["revision"],
-                        ckpt_name=smi_ted["filename"],
-                        expected_sha256=smi_ted["sha256"],
-                    )
+            resolved_smi_ted = _model_assets.resolve_model_asset("smi-ted-light")
+            with _smi_ted_vocab_dir() as vocab_dir:
+                smi_ted_embedder = SMITEDEmbedder(
+                    checkpoint_path=resolved_smi_ted.path,
+                    vocab_path=vocab_dir / "bert_vocab_curated.txt",
+                    asset_entry=resolved_smi_ted.manifest_entry,
+                )
         except Exception as error:
             raise RuntimeError("Failed to initialize SMI-TED embedder") from error
         return Runtime(

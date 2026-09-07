@@ -18,8 +18,8 @@ from .fast_transformers.builders.transformer_builders import BaseTransformerEnco
 from .fast_transformers.builders.attention_builders import AttentionBuilder
 from .fast_transformers.feature_maps import GeneralizedRandomFeatures
 from .fast_transformers.masking import LengthMask
-from huggingface_hub import hf_hub_download
 from .tokenizer import MolTranBertTokenizer
+from .asset_contract import SMI_TED_LIGHT_CONTRACT
 
 # Data
 import numpy as np
@@ -36,7 +36,8 @@ PandasTools.RenderImagesInAllDataFrames(True)
 from functools import partial
 import hashlib
 import random
-import os
+from pathlib import Path
+import warnings
 import gc
 from tqdm import tqdm
 tqdm.pandas()
@@ -371,6 +372,11 @@ class Smi_ted(nn.Module):
         # load checkpoint file
         checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
 
+        self._load_checkpoint_data(checkpoint)
+
+    def _load_checkpoint_data(self, checkpoint):
+        """Restore the legacy checkpoint structure after deserialization."""
+
         # load hyparameters
         self.config = checkpoint['hparams']
         self.max_len = self.config['max_len']
@@ -626,47 +632,62 @@ def _sha256(path):
     return digest.hexdigest()
 
 
-def load_smi_ted(folder="./smi_ted_light", 
-              repo_id="ibm/materials.smi-ted",
-              revision=None,
-              ckpt_filename="smi-ted-Light_40.pt",
-              vocab_filename="bert_vocab_curated.txt",
-              expected_sha256=None,
-              ):
-    tokenizer = MolTranBertTokenizer(os.path.join(folder, vocab_filename))
-    model = Smi_ted(tokenizer)
+def load_smi_ted_inference(checkpoint_path, vocab_path, asset_entry):
+    """Import the inference loader lazily to avoid the architecture import cycle."""
 
-    local_checkpoint = os.path.join(folder, ckpt_filename)
-    if os.path.isfile(local_checkpoint):
-        file_path = local_checkpoint
-    else:
-        download_args = {"repo_id": repo_id, "filename": ckpt_filename}
-        if revision is not None:
-            download_args["revision"] = revision
-        try:
-            file_path = hf_hub_download(**download_args)
-        except Exception as error:
-            revision_description = (
-                revision if revision is not None else "<not supplied>"
-            )
-            raise RuntimeError(
-                "Unable to load the SMI-TED checkpoint. "
-                f"Attempted local checkpoint: {local_checkpoint}; "
-                f"Hugging Face repository: {repo_id}; "
-                f"checkpoint filename: {ckpt_filename}; "
-                f"revision: {revision_description}. "
-                "Set TENNETSAC_SMI_TED_CHECKPOINT to an existing local "
-                "checkpoint path to bypass the download."
-            ) from error
-    if expected_sha256 is not None:
-        actual_sha256 = _sha256(file_path)
-        if actual_sha256 != expected_sha256:
-            raise ValueError(
-                f"SHA256 mismatch for {ckpt_filename}: expected {expected_sha256}, "
-                f"got {actual_sha256}"
-            )
-    model.load_checkpoint(file_path)
+    from .inference import load_smi_ted_inference as inference_loader
+
+    return inference_loader(checkpoint_path, vocab_path, asset_entry)
+
+
+def load_legacy_smi_ted(checkpoint_path, vocab_path, expected_sha256):
+    checkpoint_path = Path(checkpoint_path)
+    vocab_path = Path(vocab_path)
+    pinned_parent_sha256 = SMI_TED_LIGHT_CONTRACT.parent_sha256
+    if expected_sha256 != pinned_parent_sha256:
+        raise ValueError(
+            "Legacy SMI-TED loading requires the exact pinned parent SHA-256: "
+            f"{pinned_parent_sha256}"
+        )
+
+    actual_sha256 = _sha256(checkpoint_path)
+    if actual_sha256 != expected_sha256:
+        raise ValueError(
+            f"SHA256 mismatch for {checkpoint_path}: expected {expected_sha256}, "
+            f"got {actual_sha256}"
+        )
+
+    warnings.warn(
+        "Loading an explicit legacy SMI-TED .pt checkpoint is deprecated; use "
+        "the verified .safetensors inference asset instead. Legacy .pt support "
+        "will be removed in the next major release.",
+        FutureWarning,
+        stacklevel=2,
+    )
+    checkpoint = torch.load(
+        str(checkpoint_path),
+        weights_only=True,
+        mmap=True,
+        map_location="cpu",
+    )
+    tokenizer = MolTranBertTokenizer(str(vocab_path))
+    model = Smi_ted(tokenizer)
+    model._load_checkpoint_data(checkpoint)
     model.eval()
-    # print('Vocab size:', len(tokenizer.vocab))
-    # print(f'[INFERENCE MODE - {str(model)}]')
     return model
+
+
+def load_smi_ted(checkpoint_path, vocab_path, asset_entry):
+    checkpoint_path = Path(checkpoint_path)
+    vocab_path = Path(vocab_path)
+    if checkpoint_path.suffix == ".safetensors":
+        return load_smi_ted_inference(checkpoint_path, vocab_path, asset_entry)
+    if checkpoint_path.suffix == ".pt":
+        return load_legacy_smi_ted(
+            checkpoint_path,
+            vocab_path,
+            asset_entry["parent"]["sha256"],
+        )
+    raise ValueError(
+        f"Unsupported SMI-TED checkpoint format: {checkpoint_path.suffix}"
+    )
