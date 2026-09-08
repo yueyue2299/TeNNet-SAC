@@ -1,3 +1,4 @@
+import functools
 from typing import List, Tuple
 
 import numpy as np
@@ -32,13 +33,24 @@ def ensemble_predictor(sigma, temperature, *, member_index=None, return_members=
     )
     return prediction.cpu()
 
-def select_gamma_predictor(model_type: str):
-    if model_type == "base":
+def select_gamma_predictor(version: str, *, return_std: bool):
+    accepted = {"base", "tuned", *(str(i) for i in range(1, 11))}
+    if type(version) is not str or version not in accepted:
+        raise ValueError(
+            "version must be 'base', 'tuned', or a string from '1' to '10'"
+        )
+    if type(return_std) is not bool:
+        raise TypeError("return_std must be a bool")
+    if version == "tuned":
+        return functools.partial(ensemble_predictor, return_members=return_std)
+    if return_std:
+        raise ValueError(
+            "return_std=True requires version='tuned'; pass return_std=False "
+            "for version='base' or a numbered fine-tuned member"
+        )
+    if version == "base":
         return single_model_predictor
-    elif model_type == "tuned":
-        return ensemble_predictor
-    else:
-        raise ValueError("Invalid model_type. Choose 'base' or 'tuned'.")
+    return functools.partial(ensemble_predictor, member_index=int(version) - 1)
 
 def profile(smiles: str) -> Tuple[List[float], float, float]:
     """
@@ -58,7 +70,7 @@ def profile(smiles: str) -> Tuple[List[float], float, float]:
     return s_prf.squeeze().tolist(), area, volume
 
 def binary_lng(smiles: List[str], temperature: float, molefraction: List[float],
-               version: str = "tuned") -> Tuple[List[float], List[float]]:
+               version: str = "tuned", return_std: bool = True) -> Tuple[List[float], List[float], List[float], List[float]]:
     """
     Calculate the natural logarithm of activity coefficients (ln γ) for a binary mixture.
 
@@ -71,25 +83,36 @@ def binary_lng(smiles: List[str], temperature: float, molefraction: List[float],
     molefraction : list[float]
         Mole fraction of the first component (x1), second is implicitly 1 - x1.
     version : str, optional
-        Model type, "base" or "tuned". Default is "tuned".
+        Model type, "base", "tuned", or a string from "1" through "10".
+        Default is "tuned".
+    return_std : bool, optional
+        When ``True`` (the v0.2.0 default), return ensemble means and
+        population standard deviations. ``False`` preserves the historical
+        two-list mean-only result and is required for "base" and numbered
+        fine-tuned members.
 
     Returns
     -------
     tuple
-        (ln_gamma_1: list[float], ln_gamma_2: list[float])
+        By default, ``(mean_1, mean_2, std_1, std_2)``. With
+        ``return_std=False``, ``(ln_gamma_1, ln_gamma_2)``.
     """
 
     if not isinstance(smiles, list) or len(smiles) != 2:
         raise ValueError(f"'smiles' must be a list of exactly two SMILES strings, got {smiles}")
 
-    gamma_predictor = select_gamma_predictor(version)
+    gamma_predictor = select_gamma_predictor(version, return_std=return_std)
 
-    ln_gamma_1, ln_gamma_2 = calc_ln_gamma_binary(smiles[0], smiles[1], molefraction, temperature,
-                         gamma_predictor=gamma_predictor,
-                         get_sigma_profile_fn=sigma_profile_wrapper)
-    return ln_gamma_1.tolist(), ln_gamma_2.tolist()
+    values = calc_ln_gamma_binary(
+        smiles[0], smiles[1], molefraction, temperature,
+        gamma_predictor=gamma_predictor,
+        get_sigma_profile_fn=sigma_profile_wrapper,
+        return_std=return_std,
+    )
+    return tuple(value.tolist() for value in values)
 
-def multi_lng(smiles: List[str], temperature: float, composition: List[float], version: str = "tuned") -> List[float]:
+def multi_lng(smiles: List[str], temperature: float, composition: List[float],
+              version: str = "tuned", return_std: bool = True) -> Tuple[List[float], List[float]]:
     """
     Calculate the natural logarithm of activity coefficients (ln γ) for a multicomponent mixture.
 
@@ -105,24 +128,34 @@ def multi_lng(smiles: List[str], temperature: float, composition: List[float], v
         computed as 1 - sum(composition), subject to the same existing
         validation rules.
     version : str, optional
-        Model type, "base" or "tuned". Default is "tuned".
+        Model type, "base", "tuned", or a string from "1" through "10".
+        Default is "tuned".
+    return_std : bool, optional
+        When ``True`` (the v0.2.0 default), return the ensemble mean and
+        population standard deviation. ``False`` preserves the historical
+        mean-only list and is required for "base" and numbered fine-tuned
+        members.
 
     Returns
     -------
-    list[float]
-        ln_gamma values for each component.
+    tuple
+        By default, ``(mean, std)`` lists. With ``return_std=False``, the
+        historical ``ln_gamma`` list.
     """
 
-    gamma_predictor = select_gamma_predictor(version)
+    gamma_predictor = select_gamma_predictor(version, return_std=return_std)
 
     lng_array = calc_ln_gamma(
     smiles,
     composition,
     temperature,
     gamma_predictor=gamma_predictor,
-    get_sigma_profile_fn=sigma_profile_wrapper
+    get_sigma_profile_fn=sigma_profile_wrapper,
+    return_std=return_std,
     )
 
+    if return_std:
+        return tuple(value.tolist() for value in lng_array)
     return lng_array.tolist()
 
 def fit_nrtl(smiles1, smiles2,
@@ -166,7 +199,7 @@ def fit_nrtl(smiles1, smiles2,
     smiles_pair = [smiles1, smiles2]
 
     for T in temp_range:
-        l1, l2 = binary_lng(smiles_pair, T, x1_eval.tolist())
+        l1, l2 = binary_lng(smiles_pair, T, x1_eval.tolist(), return_std=False)
         lng1_obs.extend(l1)
         lng2_obs.extend(l2)
         x1_data.extend(x1_eval)
@@ -286,7 +319,9 @@ def plot_nrtl_fitting(smiles1, smiles2, fit_result):
 
     for i, T in enumerate(temp_range):
         x_discrete = np.linspace(0.0, 1.0, 11)
-        lng1_obs_list, lng2_obs_list = binary_lng([smiles1, smiles2], T, x_discrete.tolist())
+        lng1_obs_list, lng2_obs_list = binary_lng(
+            [smiles1, smiles2], T, x_discrete.tolist(), return_std=False
+        )
 
         lng1_obs = np.array(lng1_obs_list)
         lng2_obs = np.array(lng2_obs_list)

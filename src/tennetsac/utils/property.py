@@ -51,7 +51,8 @@ def compute_SG_combinatorial_term(x, areas, volumes):
 def ensemble_segac(ensemble, sigma, temperature):
     return ensemble.predict_segac(sigma, temperature).cpu()
 
-def calc_ln_gamma(smiles_list, mole_fraction_list, temperature, gamma_predictor, get_sigma_profile_fn):
+def calc_ln_gamma(smiles_list, mole_fraction_list, temperature, gamma_predictor,
+                  get_sigma_profile_fn, return_std=False):
     if temperature <= 0:
         raise ValueError(f"Temperature must be greater than 0 K. Got: {temperature}")
     aeff = 5.8447  # A2
@@ -94,18 +95,34 @@ def calc_ln_gamma(smiles_list, mole_fraction_list, temperature, gamma_predictor,
     for i in range(num_components):
         p_i = sigma_profiles[i] / areas[i]
         delta_ln = segac_mix - segacs_pure[i]
-        ln_gamma_res = areas[i] / aeff * torch.sum(p_i * delta_ln).item()
+        if return_std:
+            ln_gamma_res = areas[i] / aeff * torch.sum(
+                p_i * delta_ln, dim=(-2, -1)
+            )
+        else:
+            ln_gamma_res = areas[i] / aeff * torch.sum(p_i * delta_ln).item()
         ln_gamma_res_list.append(ln_gamma_res)
 
     ln_gamma_comb_array = np.array(ln_gamma_comb_list)
-    ln_gamma_res_array = np.array(ln_gamma_res_list)
-    ln_gamma_array = ln_gamma_comb_array + ln_gamma_res_array
-    
-    # return ln_gamma_comb_array, ln_gamma_res_array, ln_gamma_array
-    return ln_gamma_array
+    if not return_std:
+        ln_gamma_res_array = np.array(ln_gamma_res_list)
+        ln_gamma_array = ln_gamma_comb_array + ln_gamma_res_array
+        return ln_gamma_array
+
+    member_values = torch.stack(
+        [
+            residual + ln_gamma_comb_list[index]
+            for index, residual in enumerate(ln_gamma_res_list)
+        ],
+        dim=-1,
+    )
+    return (
+        member_values.mean(dim=0).cpu().numpy(),
+        member_values.std(dim=0, unbiased=False).cpu().numpy(),
+    )
 
 def calc_ln_gamma_binary(smiles_1, smiles_2, x1_list, temperature,
-                         gamma_predictor, get_sigma_profile_fn):
+                         gamma_predictor, get_sigma_profile_fn, return_std=False):
     if temperature <= 0:
         raise ValueError(f"Temperature must be greater than 0 K. Got: {temperature}")
     aeff = 5.8447  # A²
@@ -140,8 +157,16 @@ def calc_ln_gamma_binary(smiles_1, smiles_2, x1_list, temperature,
         p_2 = sigma_2 / area_2
         delta_ln_1 = segac_mix - segac_1
         delta_ln_2 = segac_mix - segac_2
-        ln_gamma_res_1 = area_1 / aeff * torch.sum(p_1 * delta_ln_1).item()
-        ln_gamma_res_2 = area_2 / aeff * torch.sum(p_2 * delta_ln_2).item()
+        if return_std:
+            ln_gamma_res_1 = area_1 / aeff * torch.sum(
+                p_1 * delta_ln_1, dim=(-2, -1)
+            )
+            ln_gamma_res_2 = area_2 / aeff * torch.sum(
+                p_2 * delta_ln_2, dim=(-2, -1)
+            )
+        else:
+            ln_gamma_res_1 = area_1 / aeff * torch.sum(p_1 * delta_ln_1).item()
+            ln_gamma_res_2 = area_2 / aeff * torch.sum(p_2 * delta_ln_2).item()
 
         # total ln gamma
         ln_gamma_1 = ln_gamma_comb_1 + ln_gamma_res_1
@@ -150,4 +175,14 @@ def calc_ln_gamma_binary(smiles_1, smiles_2, x1_list, temperature,
         ln_gamma_1_list.append(ln_gamma_1)
         ln_gamma_2_list.append(ln_gamma_2)
 
-    return np.array(ln_gamma_1_list), np.array(ln_gamma_2_list)
+    if not return_std:
+        return np.array(ln_gamma_1_list), np.array(ln_gamma_2_list)
+
+    member_values_1 = torch.stack(ln_gamma_1_list, dim=-1)
+    member_values_2 = torch.stack(ln_gamma_2_list, dim=-1)
+    return (
+        member_values_1.mean(dim=0).cpu().numpy(),
+        member_values_2.mean(dim=0).cpu().numpy(),
+        member_values_1.std(dim=0, unbiased=False).cpu().numpy(),
+        member_values_2.std(dim=0, unbiased=False).cpu().numpy(),
+    )

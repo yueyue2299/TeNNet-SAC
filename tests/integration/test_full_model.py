@@ -50,7 +50,9 @@ def test_full_runtime_outputs_are_finite(monkeypatch):
     from tennetsac import binary_lng, profile
 
     sigma, area, volume = profile("CCO")
-    lng1, lng2 = binary_lng(SMILES, 298.15, [0.25, 0.5, 0.75])
+    lng1, lng2 = binary_lng(
+        SMILES, 298.15, [0.25, 0.5, 0.75], return_std=False
+    )
 
     assert len(sigma) == 51
     assert area > 0 and volume > 0
@@ -63,11 +65,11 @@ def test_full_runtime_matches_pypi_0_1_10_golden_outputs(monkeypatch):
 
     expected = json.loads(FIXTURE.read_text())
     sigma, area, volume = profile(expected["smiles"])
-    lng1, lng2 = binary_lng(**{
+    lng1, lng2 = binary_lng(return_std=False, **{
         key: expected["binary"][key]
         for key in ("smiles", "temperature", "molefraction")
     })
-    multi_lng_values = multi_lng(**{
+    multi_lng_values = multi_lng(return_std=False, **{
         key: expected["multi"][key]
         for key in ("smiles", "temperature", "composition")
     })
@@ -79,6 +81,32 @@ def test_full_runtime_matches_pypi_0_1_10_golden_outputs(monkeypatch):
     np.testing.assert_allclose(lng2, expected["binary"]["lng2"], rtol=1e-5, atol=1e-6)
     np.testing.assert_allclose(
         multi_lng_values, expected["multi"]["lng"], rtol=1e-5, atol=1e-6
+    )
+
+
+def test_full_runtime_default_statistics_are_finite_and_match_pypi_means(monkeypatch):
+    _require_local_models(monkeypatch)
+    from tennetsac import binary_lng, multi_lng
+
+    expected = json.loads(FIXTURE.read_text())
+    lng1, lng2, std1, std2 = binary_lng(**{
+        key: expected["binary"][key]
+        for key in ("smiles", "temperature", "molefraction")
+    })
+    multi_mean, multi_std = multi_lng(**{
+        key: expected["multi"][key]
+        for key in ("smiles", "temperature", "composition")
+    })
+
+    assert len(std1) == len(lng1)
+    assert len(std2) == len(lng2)
+    assert len(multi_std) == len(multi_mean)
+    assert np.isfinite([*lng1, *lng2, *std1, *std2, *multi_mean, *multi_std]).all()
+    assert (np.asarray([*std1, *std2, *multi_std]) >= 0).all()
+    np.testing.assert_allclose(lng1, expected["binary"]["lng1"], rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(lng2, expected["binary"]["lng2"], rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(
+        multi_mean, expected["multi"]["lng"], rtol=1e-5, atol=1e-6
     )
 
 
