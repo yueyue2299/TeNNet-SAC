@@ -38,8 +38,7 @@ from tennetsac.model_manifest import bundled_artifact
 from tennetsac.models.Prf2Gamma import Prf_to_Seg_Model
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SOURCE_CONTRACT = REPOSITORY_ROOT / "scripts" / "gamma_ensemble_sources.json"
+DEFAULT_SOURCE_CONTRACT = Path(__file__).with_name("gamma_ensemble_sources.json")
 FIXED_SIGMA_VALUE = 0.01
 FIXED_SIGMA_SHAPE = (1, 51)
 FIXED_TEMPERATURE_KELVIN = 298.15
@@ -87,11 +86,10 @@ def _tensor_bytes(state: Mapping[str, torch.Tensor]) -> int:
     return sum(tensor.numel() * tensor.element_size() for tensor in state.values())
 
 
-def _load_legacy_models(
-    legacy_dir: Path,
-    source_contract: Path,
-) -> tuple[tuple[Prf_to_Seg_Model, ...], tuple[dict[str, Any], ...], int, int]:
-    contract = _load_source_contract(source_contract)
+def _load_legacy_models(legacy_dir: Path) -> tuple[
+    tuple[Prf_to_Seg_Model, ...], tuple[dict[str, Any], ...], int, int
+]:
+    contract = _load_source_contract(DEFAULT_SOURCE_CONTRACT)
     states = _load_verified_members(legacy_dir, contract)
     models = []
     for state in states:
@@ -115,18 +113,13 @@ def _load_legacy_models(
     )
 
 
-def load_verified_assets(
-    legacy_dir: Path,
-    bundle: Path,
-    source_contract: Path = DEFAULT_SOURCE_CONTRACT,
-) -> BenchmarkAssets:
+def load_verified_assets(legacy_dir: Path, bundle: Path) -> BenchmarkAssets:
     """Load only the exact source checkpoints and manifest-pinned bundle."""
     legacy_dir = Path(legacy_dir)
     bundle = Path(bundle)
-    source_contract = Path(source_contract)
     try:
         legacy_models, source_digests, legacy_file_bytes, legacy_tensor_bytes = (
-            _load_legacy_models(legacy_dir, source_contract)
+            _load_legacy_models(legacy_dir)
         )
         bundle_entry = bundled_artifact("gamma-tuned-ensemble")
         expected_path = "ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors"
@@ -425,7 +418,6 @@ def _text_report(report: Mapping[str, Any]) -> str:
 def run_benchmark(
     legacy_dir: Path,
     bundle: Path,
-    source_contract: Path,
     *,
     threads: int,
     warmup: int,
@@ -437,7 +429,7 @@ def run_benchmark(
     if iterations < 1:
         raise BenchmarkConfigurationError("iterations must be a positive integer")
     _configure_threads(threads)
-    assets = load_verified_assets(legacy_dir, bundle, source_contract)
+    assets = load_verified_assets(legacy_dir, bundle)
     parity = verify_numerical_parity(assets)
     measurements = measure_workloads(assets, warmup, iterations, threads)
     return _build_report(
@@ -454,7 +446,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--legacy-dir", type=Path, required=True)
     parser.add_argument("--bundle", type=Path, required=True)
-    parser.add_argument("--source-contract", type=Path, default=DEFAULT_SOURCE_CONTRACT)
     parser.add_argument("--iterations", type=int, required=True)
     parser.add_argument("--warmup", type=int, required=True)
     parser.add_argument("--threads", type=int, required=True)
@@ -464,7 +455,6 @@ def main(argv: list[str] | None = None) -> int:
         report = run_benchmark(
             args.legacy_dir,
             args.bundle,
-            args.source_contract,
             threads=args.threads,
             warmup=args.warmup,
             iterations=args.iterations,

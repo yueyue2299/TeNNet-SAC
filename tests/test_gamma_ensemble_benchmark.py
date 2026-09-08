@@ -164,6 +164,25 @@ def test_cli_rejects_failed_input_integrity_before_timing(monkeypatch, tmp_path,
     assert "integrity" in capsys.readouterr().err.lower()
 
 
+def test_cli_rejects_an_alternate_source_contract_option(monkeypatch, tmp_path, capsys):
+    """The benchmark contract must be the immutable repository-owned file."""
+    _patch_successful_benchmark(monkeypatch)
+    alternate_contract = tmp_path / "alternate-sources.json"
+    alternate_contract.write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exit_info:
+        benchmark.main(
+            [
+                *_argv(tmp_path / "blocked.json"),
+                "--source-contract",
+                str(alternate_contract),
+            ]
+        )
+
+    assert exit_info.value.code == 2
+    assert "unrecognized arguments: --source-contract" in capsys.readouterr().err
+
+
 def test_cli_returns_a_distinct_failure_when_mean_speedup_misses_threshold(
     monkeypatch, tmp_path
 ):
