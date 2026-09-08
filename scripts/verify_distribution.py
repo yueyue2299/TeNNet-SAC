@@ -35,7 +35,7 @@ FORBIDDEN_PARTS = {
     "dist",
 }
 FORBIDDEN_SUFFIXES = {".pyc", ".so"}
-FORBIDDEN_MODEL_WEIGHT_SUFFIXES = {".pt", ".safetensors"}
+PACKAGED_MODEL_WEIGHT_SUFFIXES = {".ckpt", ".safetensors"}
 WHEEL_FORBIDDEN_ROOTS = {"tests", "docs", ".github", "examples", "scripts"}
 SDIST_FORBIDDEN_FILES = {
     "TeNNet-SAC.yml",
@@ -49,8 +49,9 @@ CHECKPOINTS = {
     "base.ckpt",
     "geo.ckpt",
     "prf.ckpt",
-    *(f"fine-tuned/{index}.ckpt" for index in range(1, 11)),
 }
+GAMMA_ENSEMBLE_PATH = "fine-tuned/gamma-ensemble-v1.safetensors"
+MODEL_WEIGHT_PATHS = {*CHECKPOINTS, GAMMA_ENSEMBLE_PATH}
 LICENSE_EXPRESSION = "MIT AND Apache-2.0"
 LICENSE_FILES = {
     "LICENSE",
@@ -103,7 +104,7 @@ def _required_members(kind: str) -> set[str]:
     required = {
         f"{package_root}/model_manifest.json",
         f"{package_root}/smi_ted_light/bert_vocab_curated.txt",
-        *(f"{package_root}/ckpt_files/{name}" for name in CHECKPOINTS),
+        *(f"{package_root}/ckpt_files/{name}" for name in MODEL_WEIGHT_PATHS),
     }
     if kind == "sdist":
         required.update(LICENSE_FILES)
@@ -124,6 +125,8 @@ def _wheel_metadata_members(members: set[str]) -> list[str]:
 
 def _inspect_members(kind: str, members: list[str]) -> list[str]:
     errors = []
+    package_root = "tennetsac" if kind == "wheel" else "src/tennetsac"
+    approved_ensemble_member = f"{package_root}/ckpt_files/{GAMMA_ENSEMBLE_PATH}"
     for member in members:
         path = PurePosixPath(member)
         parts = path.parts
@@ -138,7 +141,12 @@ def _inspect_members(kind: str, members: list[str]) -> list[str]:
             errors.append(f"forbidden archive member: {member}")
         elif path.suffix.lower() in FORBIDDEN_SUFFIXES:
             errors.append(f"forbidden archive member: {member}")
-        elif path.suffix.lower() in FORBIDDEN_MODEL_WEIGHT_SUFFIXES:
+        elif path.suffix.lower() == ".pt":
+            errors.append(f"forbidden external model weight: {member}")
+        elif (
+            path.suffix.lower() == ".safetensors"
+            and member != approved_ensemble_member
+        ):
             errors.append(f"forbidden external model weight: {member}")
         elif kind == "wheel" and parts and parts[0] in WHEEL_FORBIDDEN_ROOTS:
             errors.append(f"forbidden archive member: {member}")
@@ -219,17 +227,17 @@ def _archive_content_errors(kind, members, read_member) -> list[str]:
         if actual_digest != expected_digest:
             errors.append(f"sha256 mismatch: {relative_path}")
 
-    packaged_checkpoints = set()
+    packaged_model_weights = set()
     checkpoint_prefix = f"{package_root}/"
     for member in members:
-        if PurePosixPath(member).suffix.lower() != ".ckpt":
+        if PurePosixPath(member).suffix.lower() not in PACKAGED_MODEL_WEIGHT_SUFFIXES:
             continue
         if member.startswith(checkpoint_prefix):
-            packaged_checkpoints.add(member[len(checkpoint_prefix) :])
+            packaged_model_weights.add(member[len(checkpoint_prefix) :])
         else:
-            packaged_checkpoints.add(member)
-    for relative_path in sorted(packaged_checkpoints - set(declared)):
-        errors.append(f"undeclared packaged checkpoint: {relative_path}")
+            packaged_model_weights.add(member)
+    for relative_path in sorted(packaged_model_weights - set(declared)):
+        errors.append(f"undeclared packaged model weight: {relative_path}")
     return errors
 
 

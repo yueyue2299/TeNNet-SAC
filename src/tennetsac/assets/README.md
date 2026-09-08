@@ -1,4 +1,8 @@
-# Reserved model assets
+# Bundled and reserved model assets
+
+`ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors` is a bundled,
+project-owned TeNNet-SAC gamma-ensemble asset. It is not an external model and
+does not need a third-party model notice.
 
 No external model weights are included in this package. In particular, the
 SMI-TED inference-only safetensors asset is downloaded from its immutable model

@@ -38,13 +38,41 @@ from tennetsac import profile, binary_lng, multi_lng
 # Example 1: Generate σ-profile
 s_profile, area, volume = profile("CCO")  # ethanol
 
-# Example 2: Predict activity coefficient for a binary mixture
-lng1_list, lng2_list = binary_lng(["CCO", "ClCCCl"], 298.15, [0.0, 0.25, 0.5, 0.75, 1.0])
+# Example 2: Default binary prediction: ensemble mean and population std
+mean_1, mean_2, std_1, std_2 = binary_lng(
+    ["CCO", "ClCCCl"], 298.15, [0.0, 0.25, 0.5, 0.75, 1.0]
+)
 
-# Example 3: Predict for multicomponent systems
-lng1, lng2, lng3 = multi_lng(["CCO", "ClCCCl", "CCN"], 298.15, [0.3, 0.4])
+# Example 3: Default multicomponent prediction: ensemble mean and population std
+mean, std = multi_lng(["CCO", "ClCCCl", "CCN"], 298.15, [0.3, 0.4])
+
+# Explicit mean-only compatibility mode
+mean = multi_lng(["CCO", "ClCCCl", "CCN"], 298.15, [0.3, 0.4], return_std=False)
+
+# Select one numbered fine-tuned member (strings "1" through "10")
+member_7 = multi_lng(
+    ["CCO", "ClCCCl", "CCN"], 298.15, [0.3, 0.4], version="7", return_std=False
+)
 ```
 You can fit temperature-dependent NRTL parameters based on TeNNet-SAC predictions.
+
+### Ensemble statistics and v0.2.0 API change
+
+Starting in **v0.2.0**, `binary_lng` and `multi_lng` default to the ten-member
+fine-tuned ensemble and return population standard deviations (`ddof=0`) in
+addition to their means. The population standard deviation is calculated over
+all ten final outputs. Pass `return_std=False` for the historical mean-only
+return shapes.
+
+Statistics are available only for `version="tuned"`. `version="base"` and
+numbered members `version="1"` through `version="10"` require
+`return_std=False` because each selects one model rather than an ensemble.
+
+The project-owned bundled ensemble asset is
+`fine-tuned/gamma-ensemble-v1.safetensors`. Its approximately 5.2 MB file
+replaces approximately 37.3 MB of ten duplicated fine-tuned checkpoint files.
+Its conversion record and parity command are in
+[`docs/model-assets/gamma-ensemble-v1.md`](docs/model-assets/gamma-ensemble-v1.md).
 
 ```python
 from tennetsac import fit_nrtl, plot_nrtl_fitting
@@ -165,7 +193,8 @@ Package versions are derived from Git tags; GitHub is the release source.
 | `TeNNet-SAC.yml`     | Conda environment configuration                          |
 | `requirements.txt` | Development install entry point (`-e .[dev]`)            |
 | `examples/TeNNetSAC.ipynb` | Example notebook using the public package API     |
-| `src/tennetsac`   | Installable package, packaged checkpoints, and utilities |
+| `src/tennetsac`   | Installable package, three checkpoints, the bundled gamma ensemble, and utilities |
+| `src/tennetsac/ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors` | Project-owned bundled ten-member gamma ensemble asset |
 | `src/tennetsac/assets/chemberta2/` | Reserved, currently empty offline ChemBERTa2 location |
 | `README.md`        | Project readme                                           |
 

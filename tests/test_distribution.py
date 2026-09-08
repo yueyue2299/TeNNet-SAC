@@ -1,4 +1,5 @@
 import io
+import hashlib
 import json
 import tarfile
 import zipfile
@@ -9,22 +10,18 @@ import pytest
 from scripts.verify_distribution import main, verify_archive
 
 
-CHECKPOINTS = {
-    "base.ckpt",
-    "geo.ckpt",
-    "prf.ckpt",
-    *(f"fine-tuned/{index}.ckpt" for index in range(1, 11)),
-}
-CHECKPOINT_PAYLOAD = b"fixture checkpoint\n"
-CHECKPOINT_SHA256 = "472bb8a60bd4b125cdabf44b456e125f0d6851375d8d03c5c038a6be960a5e09"
-ARTIFACT_NAMES = {
+MODEL_ASSETS = {
     "base.ckpt": "gamma-base",
     "geo.ckpt": "geometry",
     "prf.ckpt": "sigma-profile",
-    **{
-        f"fine-tuned/{index}.ckpt": f"gamma-tuned-{index}"
-        for index in range(1, 11)
-    },
+    "fine-tuned/gamma-ensemble-v1.safetensors": "gamma-tuned-ensemble",
+}
+MODEL_PAYLOADS = {
+    path: f"fixture model asset: {path}\n".encode() for path in MODEL_ASSETS
+}
+MODEL_SHA256 = {
+    path: hashlib.sha256(payload).hexdigest()
+    for path, payload in MODEL_PAYLOADS.items()
 }
 LICENSE_FILES = [
     "LICENSE",
@@ -38,15 +35,15 @@ def _manifest_bytes():
     return json.dumps(
         {
             "schema_version": 2,
-            "bundle_version": "1.0.0",
+            "bundle_version": "2.0.0",
             "artifacts": [
                 {
-                    "name": ARTIFACT_NAMES[path],
+                    "name": MODEL_ASSETS[path],
                     "path": f"ckpt_files/{path}",
-                    "sha256": CHECKPOINT_SHA256,
+                    "sha256": MODEL_SHA256[path],
                     "distribution": "bundled",
                 }
-                for path in sorted(CHECKPOINTS)
+                for path in sorted(MODEL_ASSETS)
             ],
             "external_models": [
                 {
@@ -123,8 +120,8 @@ def _wheel_files():
         "tennetsac/smi_ted_light/bert_vocab_curated.txt": b"<bos>\n<eos>\n",
         f"{metadata_root}/METADATA": _metadata_bytes(),
         **{
-            f"tennetsac/ckpt_files/{name}": CHECKPOINT_PAYLOAD
-            for name in CHECKPOINTS
+            f"tennetsac/ckpt_files/{name}": MODEL_PAYLOADS[name]
+            for name in MODEL_ASSETS
         },
     }
     files.update(
@@ -143,8 +140,8 @@ def _sdist_files():
         f"{root}/src/tennetsac/smi_ted_light/bert_vocab_curated.txt": b"<bos>\n<eos>\n",
         f"{root}/PKG-INFO": _metadata_bytes(),
         **{
-            f"{root}/src/tennetsac/ckpt_files/{name}": CHECKPOINT_PAYLOAD
-            for name in CHECKPOINTS
+            f"{root}/src/tennetsac/ckpt_files/{name}": MODEL_PAYLOADS[name]
+            for name in MODEL_ASSETS
         },
     }
     files.update({f"{root}/{path}": b"license fixture\n" for path in LICENSE_FILES})
@@ -417,71 +414,152 @@ def test_verify_archive_rejects_invalid_manifest_schema(
 
 
 @pytest.mark.parametrize(
-    ("suffix", "writer", "checkpoint_member"),
+    ("suffix", "writer", "model_member", "relative_path"),
     [
-        (".whl", _write_wheel, "tennetsac/ckpt_files/base.ckpt"),
+        (
+            ".whl",
+            _write_wheel,
+            "tennetsac/ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
+            "ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
+        ),
         (
             ".tar.gz",
             _write_sdist,
-            "tennetsac-0.1.10/src/tennetsac/ckpt_files/base.ckpt",
+            "tennetsac-0.1.10/src/tennetsac/ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
+            "ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
         ),
     ],
 )
-def test_verify_archive_rejects_checkpoint_digest_mismatch(
-    tmp_path, suffix, writer, checkpoint_member
+def test_verify_archive_rejects_model_weight_digest_mismatch(
+    tmp_path, suffix, writer, model_member, relative_path
 ):
     archive = tmp_path / f"tennetsac-0.1.10{suffix}"
-    writer(archive, {checkpoint_member: b"corrupt checkpoint\n"})
+    writer(archive, {model_member: b"corrupt model weight\n"})
 
     errors = verify_archive(archive)
 
-    assert any("sha256 mismatch: ckpt_files/base.ckpt" in error for error in errors)
+    assert f"sha256 mismatch: {relative_path}" in errors
 
 
 @pytest.mark.parametrize(
-    ("suffix", "writer", "checkpoint_member"),
+    ("suffix", "writer", "model_member", "relative_path"),
     [
-        (".whl", _write_wheel, "tennetsac/ckpt_files/base.ckpt"),
+        (
+            ".whl",
+            _write_wheel,
+            "tennetsac/ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
+            "ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
+        ),
         (
             ".tar.gz",
             _write_sdist,
-            "tennetsac-0.1.10/src/tennetsac/ckpt_files/base.ckpt",
+            "tennetsac-0.1.10/src/tennetsac/ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
+            "ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
         ),
     ],
 )
-def test_verify_archive_rejects_missing_manifest_declared_checkpoint(
-    tmp_path, suffix, writer, checkpoint_member
+def test_verify_archive_rejects_missing_manifest_declared_model_weight(
+    tmp_path, suffix, writer, model_member, relative_path
 ):
     archive = tmp_path / f"tennetsac-0.1.10{suffix}"
     members = list(_wheel_members() if suffix == ".whl" else _sdist_members())
-    members.remove(checkpoint_member)
+    members.remove(model_member)
     writer(archive, required_members=members)
 
     assert any(
-        "missing bundled artifact: ckpt_files/base.ckpt" in error
+        f"missing bundled artifact: {relative_path}" in error
         for error in verify_archive(archive)
     )
 
 
 @pytest.mark.parametrize(
-    ("suffix", "writer", "checkpoint_member"),
+    ("suffix", "writer", "model_weight_member", "relative_path"),
     [
-        (".whl", _write_wheel, "tennetsac/ckpt_files/undeclared.ckpt"),
+        (
+            ".whl",
+            _write_wheel,
+            "tennetsac/ckpt_files/fine-tuned/7.ckpt",
+            "ckpt_files/fine-tuned/7.ckpt",
+        ),
         (
             ".tar.gz",
             _write_sdist,
-            "tennetsac-0.1.10/src/tennetsac/ckpt_files/undeclared.ckpt",
+            "tennetsac-0.1.10/src/tennetsac/ckpt_files/fine-tuned/7.ckpt",
+            "ckpt_files/fine-tuned/7.ckpt",
         ),
     ],
 )
-def test_verify_archive_rejects_undeclared_checkpoint(
-    tmp_path, suffix, writer, checkpoint_member
+def test_verify_archive_rejects_old_numbered_checkpoint(
+    tmp_path, suffix, writer, model_weight_member, relative_path
 ):
     archive = tmp_path / f"tennetsac-0.1.10{suffix}"
-    writer(archive, {checkpoint_member: CHECKPOINT_PAYLOAD})
+    writer(archive, {model_weight_member: MODEL_PAYLOADS["base.ckpt"]})
 
     assert any(
-        "undeclared packaged checkpoint: ckpt_files/undeclared.ckpt" in error
+        f"undeclared packaged model weight: {relative_path}" in error
+        for error in verify_archive(archive)
+    )
+
+
+@pytest.mark.parametrize(
+    ("suffix", "writer", "model_weight_member", "relative_path"),
+    [
+        (
+            ".whl",
+            _write_wheel,
+            "tennetsac/ckpt_files/fine-tuned/other.safetensors",
+            "ckpt_files/fine-tuned/other.safetensors",
+        ),
+        (
+            ".tar.gz",
+            _write_sdist,
+            "tennetsac-0.1.10/src/tennetsac/ckpt_files/fine-tuned/other.safetensors",
+            "ckpt_files/fine-tuned/other.safetensors",
+        ),
+    ],
+)
+def test_verify_archive_rejects_undeclared_safetensors_weight(
+    tmp_path, suffix, writer, model_weight_member, relative_path
+):
+    archive = tmp_path / f"tennetsac-0.1.10{suffix}"
+    writer(archive, {model_weight_member: MODEL_PAYLOADS["base.ckpt"]})
+
+    errors = verify_archive(archive)
+
+    assert any(
+        error.startswith("forbidden external model weight: ")
+        and error.endswith(relative_path)
+        for error in errors
+    )
+    assert f"undeclared packaged model weight: {relative_path}" in errors
+
+
+@pytest.mark.parametrize(
+    ("suffix", "writer", "model_weight_member", "relative_path"),
+    [
+        (
+            ".whl",
+            _write_wheel,
+            "tennetsac/ckpt_files/fine-tuned/unapproved.pt",
+            "ckpt_files/fine-tuned/unapproved.pt",
+        ),
+        (
+            ".tar.gz",
+            _write_sdist,
+            "tennetsac-0.1.10/src/tennetsac/ckpt_files/fine-tuned/unapproved.pt",
+            "ckpt_files/fine-tuned/unapproved.pt",
+        ),
+    ],
+)
+def test_verify_archive_rejects_all_pt_model_weights(
+    tmp_path, suffix, writer, model_weight_member, relative_path
+):
+    archive = tmp_path / f"tennetsac-0.1.10{suffix}"
+    writer(archive, {model_weight_member: MODEL_PAYLOADS["base.ckpt"]})
+
+    assert any(
+        error.startswith("forbidden external model weight: ")
+        and error.endswith(relative_path)
         for error in verify_archive(archive)
     )
 
