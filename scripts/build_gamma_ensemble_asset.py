@@ -16,6 +16,7 @@ from typing import Any
 import torch
 from safetensors.torch import load_file, save_file
 
+from tennetsac.gamma_ensemble import BUNDLE_METADATA, BUNDLE_TENSOR_BYTES
 from tennetsac.models.Prf2Gamma import Prf_to_Seg_Model
 
 if __package__:
@@ -27,7 +28,7 @@ else:
 HASH_CHUNK_BYTES = 1024 * 1024
 MEMBER_COUNT = 10
 FINAL_PREFIX = "model_final."
-PRODUCTION_TENSOR_BYTES = 5_202_560
+PRODUCTION_TENSOR_BYTES = BUNDLE_TENSOR_BYTES
 CONTRACT_KEYS = {
     "format_version",
     "source_bundle_version",
@@ -302,14 +303,7 @@ def build_bundle(
             "production gamma ensemble tensor bytes mismatch: "
             f"expected {PRODUCTION_TENSOR_BYTES}, got {tensor_bytes}"
         )
-    metadata = {
-        "asset_name": "gamma-tuned-ensemble",
-        "format_version": "1",
-        "member_count": "10",
-        "shared_tensor_count": "33",
-        "head_tensor_count": "60",
-        "source_manifest_bundle_version": contract["source_bundle_version"],
-    }
+    metadata = BUNDLE_METADATA
 
     temporary_path: Path | None = None
     try:
