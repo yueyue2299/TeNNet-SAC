@@ -38,6 +38,14 @@ def test_candidate_matches_the_independent_legacy_golden_fixture():
     legacy_dir = Path(legacy_value)
     candidate = Path(candidate_value)
     contract = json.loads((root / "scripts/gamma_ensemble_sources.json").read_text("utf-8"))
+    expected_sources = [
+        {
+            "member": entry["member"],
+            "path": entry["path"],
+            "sha256": entry["sha256"],
+        }
+        for entry in contract["members"]
+    ]
     actual_sources = [
         {
             "member": entry["member"],
@@ -46,10 +54,25 @@ def test_candidate_matches_the_independent_legacy_golden_fixture():
         }
         for entry in contract["members"]
     ]
-    assert actual_sources == fixture["source_digests"]
+    assert fixture["source_digests"] == expected_sources
+    assert actual_sources == expected_sources
     assert _sha256(candidate) == EXPECTED_CANDIDATE_SHA256
 
     ensemble = load_gamma_ensemble(candidate, EXPECTED_CANDIDATE_SHA256)
+    original_predict_segac = ensemble.predict_segac
+    candidate_member_indices = []
+
+    def tracked_predict_segac(sigma, temperature, *, member_index=None, return_members=False):
+        if member_index is not None:
+            candidate_member_indices.append(member_index)
+        return original_predict_segac(
+            sigma,
+            temperature,
+            member_index=member_index,
+            return_members=return_members,
+        )
+
+    ensemble.predict_segac = tracked_predict_segac
     assert len(ensemble.state_dict()) == BUNDLE_TENSOR_COUNT
     assert sum(
         value.numel() * value.element_size()
@@ -96,7 +119,24 @@ def test_candidate_matches_the_independent_legacy_golden_fixture():
 
     for case in fixture["mixture_cases"]:
         lookup = profile_lookup(case["components"])
-        member_values = []
+        candidate_member_values = []
+        legacy_member_values = []
+        for member_index in range(10):
+            predictor = lambda sigma, temperature, member_index=member_index: ensemble.predict_segac(
+                sigma, temperature, member_index=member_index
+            )
+            if case["kind"] == "binary":
+                left, right = calc_ln_gamma_binary(
+                    "component-1", "component-2", case["composition"], case["temperature"], predictor, lookup
+                )
+                candidate_member_values.append([left.tolist(), right.tolist()])
+            else:
+                candidate_member_values.append(
+                    calc_ln_gamma(
+                        [item["name"] for item in case["components"]],
+                        case["composition"], case["temperature"], predictor, lookup
+                    ).tolist()
+                )
         for model in legacy:
             predictor = lambda sigma, temperature, model=model: model(
                 sigma,
@@ -106,24 +146,38 @@ def test_candidate_matches_the_independent_legacy_golden_fixture():
                 left, right = calc_ln_gamma_binary(
                     "component-1", "component-2", case["composition"], case["temperature"], predictor, lookup
                 )
-                member_values.append([left.tolist(), right.tolist()])
+                legacy_member_values.append([left.tolist(), right.tolist()])
             else:
-                member_values.append(
+                legacy_member_values.append(
                     calc_ln_gamma(
                         [item["name"] for item in case["components"]],
                         case["composition"], case["temperature"], predictor, lookup
                     ).tolist()
                 )
-        actual = torch.tensor(member_values, dtype=torch.float64)
+        candidate_actual = torch.tensor(candidate_member_values, dtype=torch.float64)
+        legacy_actual = torch.tensor(legacy_member_values, dtype=torch.float64)
         torch.testing.assert_close(
-            actual, torch.tensor(case["members"], dtype=torch.float64), rtol=1e-5, atol=1e-6
+            candidate_actual,
+            torch.tensor(case["members"], dtype=torch.float64),
+            rtol=1e-5,
+            atol=1e-6,
         )
         torch.testing.assert_close(
-            actual.mean(dim=0), torch.tensor(case["mean"], dtype=torch.float64), rtol=1e-5, atol=1e-6
+            candidate_actual.mean(dim=0),
+            torch.tensor(case["mean"], dtype=torch.float64),
+            rtol=1e-5,
+            atol=1e-6,
         )
         torch.testing.assert_close(
-            actual.std(dim=0, unbiased=False),
+            candidate_actual.std(dim=0, unbiased=False),
             torch.tensor(case["std"], dtype=torch.float64),
             rtol=1e-5,
             atol=1e-6,
         )
+        torch.testing.assert_close(candidate_actual, legacy_actual, rtol=1e-5, atol=1e-6)
+    assert candidate_member_indices == [
+        member_index
+        for _case in fixture["mixture_cases"]
+        for member_index in range(10)
+        for _prediction in range(4)
+    ]

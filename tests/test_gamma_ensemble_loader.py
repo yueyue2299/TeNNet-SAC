@@ -96,6 +96,15 @@ def test_loader_rejects_symlink_and_non_regular_paths(tmp_path, valid_bundle):
         load_gamma_ensemble(directory, digest)
 
 
+def test_loader_rejects_an_unexpected_bundle_filename(valid_bundle):
+    bundle, digest = valid_bundle
+    wrong_name = bundle.with_name("other-ensemble.safetensors")
+    bundle.rename(wrong_name)
+
+    with pytest.raises(GammaEnsembleLoadError, match="filename"):
+        load_gamma_ensemble(wrong_name, digest)
+
+
 def test_loader_rejects_duplicate_header_tensor_names_before_safetensors_open(
     monkeypatch, valid_bundle
 ):

@@ -198,6 +198,10 @@ def load_gamma_ensemble(path: Path, expected_sha256: str) -> GammaEnsemble:
         mode = path.stat().st_mode
         if not stat.S_ISREG(mode):
             raise ValueError(f"gamma ensemble asset must be a regular file: {path}")
+        if path.name != BUNDLE_FILENAME:
+            raise ValueError(
+                f"gamma ensemble asset filename must be {BUNDLE_FILENAME}: {path}"
+            )
         actual_sha256 = _sha256_file(path)
         if actual_sha256 != expected_sha256:
             raise ValueError(
