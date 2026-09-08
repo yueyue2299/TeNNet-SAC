@@ -14,4 +14,5 @@ exclude TeNNet-SAC.yml requirements.txt TrainingSystemsList.csv architecture.png
 exclude .gitignore TeNNetSAC.ipynb
 global-exclude *.py[cod] *.so
 global-exclude *.pt *.safetensors
+include src/tennetsac/ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors
 prune src/**/__pycache__

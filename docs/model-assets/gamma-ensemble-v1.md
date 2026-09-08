@@ -55,6 +55,13 @@ TENNETSAC_GAMMA_ENSEMBLE=src/tennetsac/ckpt_files/fine-tuned/gamma-ensemble-v1.s
 conda run -n tsac_env python -m pytest tests/integration/test_gamma_ensemble_asset.py -v
 ```
 
-Benchmark evidence is intentionally not recorded here until Task 7 runs the
-controlled benchmark and adds measured results; no benchmark numbers are
-invented in this provenance record.
+## Controlled benchmark evidence
+
+Task 7 ran three controlled local measurements against the verified preserved
+sources and the integrated bundle. The representative median run by new
+mean-path time was r3: legacy mean 3,079,825.166 ns/call, new mean 631,969.666
+ns/call (4.8734×), explicit legacy ten-member mean+std reference 3,082,728.582
+ns/call, and new mean+std 1,238,649.166 ns/call (2.4888×). The exact digest,
+all three runs, batch dispersions, environment, parity errors, and byte
+reductions are recorded in the
+[controlled benchmark report](../benchmarks/2026-09-08-gamma-ensemble.md).

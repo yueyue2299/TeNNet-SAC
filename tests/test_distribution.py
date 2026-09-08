@@ -1,6 +1,8 @@
 import io
 import hashlib
 import json
+import subprocess
+import sys
 import tarfile
 import zipfile
 from pathlib import Path
@@ -10,6 +12,7 @@ import pytest
 from scripts.verify_distribution import main, verify_archive
 
 
+ROOT = Path(__file__).resolve().parents[1]
 MODEL_ASSETS = {
     "base.ckpt": "gamma-base",
     "geo.ckpt": "geometry",
@@ -368,6 +371,36 @@ def test_verify_archive_accepts_complete_clean_distribution(tmp_path, suffix, wr
     archive = tmp_path / f"tennetsac-0.1.10{suffix}"
     writer(archive)
 
+    assert verify_archive(archive) == []
+
+
+def test_real_sdist_includes_the_pinned_gamma_ensemble_asset(tmp_path):
+    """Breaks if source-manifest exclusions drop the one approved safetensors file."""
+    output = tmp_path / "dist"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "build",
+            "--no-isolation",
+            "--sdist",
+            "--outdir",
+            str(output),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    archive = next(output.glob("*.tar.gz"))
+    with tarfile.open(archive, "r:gz") as source_distribution:
+        members = source_distribution.getnames()
+    assert any(
+        member.endswith("src/tennetsac/ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors")
+        for member in members
+    )
     assert verify_archive(archive) == []
 
 
