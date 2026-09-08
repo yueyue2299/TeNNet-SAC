@@ -43,6 +43,10 @@ mean_1, mean_2, std_1, std_2 = binary_lng(
     ["CCO", "ClCCCl"], 298.15, [0.0, 0.25, 0.5, 0.75, 1.0]
 )
 
+# The default binary result returns four lists in this order: mean_1, mean_2,
+# std_1, and std_2; mean_1/std_1 describe component 1, mean_2/std_2 describe
+# component 2, and both std lists are population standard deviations.
+
 # Example 3: Default multicomponent prediction: ensemble mean and population std
 mean, std = multi_lng(["CCO", "ClCCCl", "CCN"], 298.15, [0.3, 0.4])
 
