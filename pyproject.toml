@@ -37,7 +37,12 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8", "packaging", "PyYAML>=6"]
-build = ["build>=1.2", "twine>=5"]
+build = [
+  "build>=1.2",
+  "setuptools>=77",
+  "setuptools-scm>=8",
+  "twine>=5",
+]
 dev = [
   "pytest>=8",
   "packaging",
