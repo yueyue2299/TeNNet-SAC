@@ -21,6 +21,13 @@ def external_model(name: str) -> dict:
     raise KeyError(f"Unknown external model: {name}")
 
 
+def bundled_artifact(name: str) -> dict:
+    for entry in load_manifest()["artifacts"]:
+        if entry["name"] == name:
+            return entry
+    raise KeyError(f"Unknown bundled artifact: {name}")
+
+
 def _sha256(path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:

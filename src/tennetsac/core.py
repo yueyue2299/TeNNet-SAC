@@ -23,10 +23,14 @@ def single_model_predictor(sigma, temperature):
     model = get_runtime().gamma_base_model
     return model(sigma, torch.tensor([temperature]))[1]
 
-def ensemble_predictor(sigma, temperature):
-    from .utils.property import ensemble_segac
-
-    return ensemble_segac(get_runtime().gamma_finetuned_models, sigma, temperature)
+def ensemble_predictor(sigma, temperature, *, member_index=None, return_members=False):
+    prediction = get_runtime().gamma_ensemble.predict_segac(
+        sigma,
+        temperature,
+        member_index=member_index,
+        return_members=return_members,
+    )
+    return prediction.cpu()
 
 def select_gamma_predictor(model_type: str):
     if model_type == "base":

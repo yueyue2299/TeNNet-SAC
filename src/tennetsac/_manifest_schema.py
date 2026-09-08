@@ -10,8 +10,11 @@ ARTIFACT_KEYS = {"name", "path", "sha256", "distribution"}
 BUNDLED_CHECKPOINT_PATHS = frozenset(
     {
         "ckpt_files/base.ckpt", "ckpt_files/geo.ckpt", "ckpt_files/prf.ckpt",
-        *(f"ckpt_files/fine-tuned/{index}.ckpt" for index in range(1, 11)),
+        "ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
     }
+)
+BUNDLED_ARTIFACT_NAMES = frozenset(
+    {"gamma-base", "geometry", "sigma-profile", "gamma-tuned-ensemble"}
 )
 CHEMBERTA2_KEYS = {"name", "source", "revision", "distribution"}
 SMI_TED_LIGHT_KEYS = {
@@ -44,7 +47,6 @@ TOKENIZER_NAME = "smi-ted-regex"
 TOKENIZER_VOCAB_PATH = "smi_ted_light/bert_vocab_curated.txt"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _REVISION = re.compile(r"[0-9a-f]{40}")
-_BUNDLE_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
 
 def _exact_keys(value, expected, label, errors):
@@ -121,8 +123,8 @@ def validate_manifest(manifest) -> list[str]:
 
     _exact_integer(manifest.get("schema_version"), 2, "schema_version", errors)
     bundle_version = manifest.get("bundle_version")
-    if not isinstance(bundle_version, str) or not _BUNDLE_VERSION.fullmatch(bundle_version):
-        errors.append("bundle_version must use MAJOR.MINOR.PATCH")
+    if bundle_version != "2.0.0":
+        errors.append("bundle_version must be exactly 2.0.0")
 
     artifacts = manifest.get("artifacts")
     artifact_names = set()
@@ -149,7 +151,12 @@ def validate_manifest(manifest) -> list[str]:
             if entry["distribution"] != "bundled":
                 errors.append(f"artifact distribution at index {index} must be bundled")
         if artifact_paths != BUNDLED_CHECKPOINT_PATHS:
-            errors.append("checkpoint paths must be exactly the approved 13-checkpoint set")
+            errors.append("checkpoint paths must be exactly the approved four-artifact set")
+        if artifact_names != BUNDLED_ARTIFACT_NAMES:
+            errors.append(
+                "artifact names must be exactly gamma-base, geometry, sigma-profile, "
+                "and gamma-tuned-ensemble"
+            )
 
     external_models = manifest.get("external_models")
     external_names = set()

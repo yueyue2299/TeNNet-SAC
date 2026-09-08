@@ -48,16 +48,8 @@ def compute_SG_combinatorial_term(x, areas, volumes):
 
     return lngc
 
-def ensemble_segac(models, sigma, temperature):
-    sigma = sigma.clone().detach().requires_grad_(True)
-    segac_list = []
-
-    for model in models:
-        _, segac_i = model(sigma, torch.tensor([temperature]))
-        segac_list.append(segac_i.numpy())
-
-    segac_mean = np.mean(segac_list, axis=0)
-    return segac_mean
+def ensemble_segac(ensemble, sigma, temperature):
+    return ensemble.predict_segac(sigma, temperature).cpu()
 
 def calc_ln_gamma(smiles_list, mole_fraction_list, temperature, gamma_predictor, get_sigma_profile_fn):
     if temperature <= 0:

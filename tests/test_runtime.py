@@ -7,6 +7,7 @@ import pytest
 
 @pytest.fixture
 def isolated_runtime_build(monkeypatch, tmp_path):
+    from tennetsac import gamma_ensemble as gamma_ensemble_module
     from tennetsac import model_manifest, runtime
     from tennetsac.models import Emb2Geometry, Emb2Profile, Prf2Gamma
     from tennetsac.utils import embedding, model_io
@@ -34,10 +35,23 @@ def isolated_runtime_build(monkeypatch, tmp_path):
     monkeypatch.setattr(
         model_io, "load_model", lambda model, path: (model, path.name)
     )
+    gamma_ensemble = object()
+    gamma_loader_calls = []
+
+    def load_gamma_ensemble(path, expected_sha256):
+        gamma_loader_calls.append((path, expected_sha256))
+        return gamma_ensemble
+
+    monkeypatch.setattr(
+        gamma_ensemble_module, "load_gamma_ensemble", load_gamma_ensemble
+    )
     monkeypatch.setattr(
         model_io,
         "load_all_Gamma_models",
-        lambda model_class, path: ["fine-tuned"],
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("runtime invoked the legacy ten-checkpoint loader")
+        ),
+        raising=False,
     )
     monkeypatch.setattr(
         embedding,
@@ -57,11 +71,28 @@ def isolated_runtime_build(monkeypatch, tmp_path):
             AssertionError(f"runtime directly loaded unexpected manifest entry: {name}")
         ),
     )
+    monkeypatch.setattr(
+        model_manifest,
+        "bundled_artifact",
+        lambda name: {
+            "name": "gamma-tuned-ensemble",
+            "path": "ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
+            "sha256": "9ebd1b3b72c406c1987afd7ee842cdbc152c019148e6c97aea5e39cf74a79e22",
+            "distribution": "bundled",
+        }
+        if name == "gamma-tuned-ensemble"
+        else (_ for _ in ()).throw(
+            AssertionError(f"runtime directly loaded unexpected manifest entry: {name}")
+        ),
+        raising=False,
+    )
     return SimpleNamespace(
         runtime=runtime,
         embedding=embedding,
         checkpoint_root=checkpoint_root,
         vocab_path=vocab_path,
+        gamma_ensemble=gamma_ensemble,
+        gamma_loader_calls=gamma_loader_calls,
     )
 
 
@@ -118,6 +149,14 @@ def test_build_runtime_resolves_smi_ted_once_and_propagates_explicit_asset(
         }
     ]
     assert result.smi_ted_embedder == ("smi-ted", embedder_calls[0])
+    assert result.gamma_ensemble is build.gamma_ensemble
+    assert not hasattr(result, "gamma_finetuned_models")
+    assert build.gamma_loader_calls == [
+        (
+            build.checkpoint_root / "fine-tuned/gamma-ensemble-v1.safetensors",
+            "9ebd1b3b72c406c1987afd7ee842cdbc152c019148e6c97aea5e39cf74a79e22",
+        )
+    ]
 
 
 def test_build_runtime_wraps_offline_smi_ted_failure_with_original_cause(
@@ -185,7 +224,7 @@ def test_missing_checkpoint_reports_logical_package_path(monkeypatch):
         runtime._checkpoint_root()
 
 
-def test_missing_finetuned_checkpoint_reports_for_filesystem_resource(
+def test_missing_gamma_ensemble_reports_for_filesystem_resource(
     monkeypatch, tmp_path
 ):
     from tennetsac import runtime
@@ -194,18 +233,16 @@ def test_missing_finetuned_checkpoint_reports_for_filesystem_resource(
     (checkpoint_root / "fine-tuned").mkdir(parents=True)
     for name in ("base.ckpt", "geo.ckpt", "prf.ckpt"):
         (checkpoint_root / name).touch()
-    for index in range(1, 10):
-        (checkpoint_root / "fine-tuned" / f"{index}.ckpt").touch()
     monkeypatch.setattr(runtime, "files", lambda package: tmp_path)
 
     with pytest.raises(
         FileNotFoundError,
-        match=r"fine-tuned/10\.ckpt.*tennetsac/ckpt_files",
+        match=r"fine-tuned/gamma-ensemble-v1\.safetensors.*tennetsac/ckpt_files",
     ):
         runtime._checkpoint_root()
 
 
-def test_missing_finetuned_checkpoint_reports_for_traversable_resource(monkeypatch):
+def test_missing_gamma_ensemble_reports_for_traversable_resource(monkeypatch):
     from tennetsac import runtime
 
     class Resource:
@@ -224,12 +261,11 @@ def test_missing_finetuned_checkpoint_reports_for_traversable_resource(monkeypat
         "ckpt_files/base.ckpt",
         "ckpt_files/geo.ckpt",
         "ckpt_files/prf.ckpt",
-        *(f"ckpt_files/fine-tuned/{index}.ckpt" for index in range(1, 10)),
     }
     monkeypatch.setattr(runtime, "files", lambda package: Resource("", available))
 
     with pytest.raises(
         FileNotFoundError,
-        match=r"fine-tuned/10\.ckpt.*tennetsac/ckpt_files",
+        match=r"fine-tuned/gamma-ensemble-v1\.safetensors.*tennetsac/ckpt_files",
     ):
         runtime._checkpoint_root()

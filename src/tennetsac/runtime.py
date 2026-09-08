@@ -11,7 +11,7 @@ _CHECKPOINT_RESOURCES = (
     "base.ckpt",
     "geo.ckpt",
     "prf.ckpt",
-    *(f"fine-tuned/{index}.ckpt" for index in range(1, 11)),
+    "fine-tuned/gamma-ensemble-v1.safetensors",
 )
 
 
@@ -22,7 +22,7 @@ class Runtime:
     profile_model: object
     geometry_model: object
     gamma_base_model: object
-    gamma_finetuned_models: tuple[object, ...]
+    gamma_ensemble: object
 
 
 def _checkpoint_root():
@@ -82,8 +82,9 @@ def _build_runtime() -> Runtime:
     from .models.Emb2Profile import SigmaProfileGenerator
     from .models.Prf2Gamma import Prf_to_Seg_Model
     from .utils.embedding import ChemBERTaEmbedder, SMITEDEmbedder
-    from .utils.model_io import load_all_Gamma_models, load_model
-    from .model_manifest import external_model
+    from .utils.model_io import load_model
+    from .gamma_ensemble import load_gamma_ensemble
+    from .model_manifest import bundled_artifact, external_model
     from . import _model_assets
 
     with _checkpoint_path(_checkpoint_root()) as checkpoint_root:
@@ -104,6 +105,14 @@ def _build_runtime() -> Runtime:
                 )
         except Exception as error:
             raise RuntimeError("Failed to initialize SMI-TED embedder") from error
+        ensemble_entry = bundled_artifact("gamma-tuned-ensemble")
+        try:
+            gamma_ensemble = load_gamma_ensemble(
+                checkpoint_root / ensemble_entry["path"].removeprefix("ckpt_files/"),
+                expected_sha256=ensemble_entry["sha256"],
+            )
+        except Exception as error:
+            raise RuntimeError("Failed to initialize gamma ensemble") from error
         return Runtime(
             chemberta_embedder=chemberta_embedder,
             smi_ted_embedder=smi_ted_embedder,
@@ -116,11 +125,7 @@ def _build_runtime() -> Runtime:
             gamma_base_model=load_model(
                 Prf_to_Seg_Model(), checkpoint_root / "base.ckpt"
             ),
-            gamma_finetuned_models=tuple(
-                load_all_Gamma_models(
-                    Prf_to_Seg_Model, checkpoint_root / "fine-tuned"
-                )
-            ),
+            gamma_ensemble=gamma_ensemble,
         )
 
 

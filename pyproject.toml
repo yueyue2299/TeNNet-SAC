@@ -60,7 +60,7 @@ tennetsac = [
   "assets/*.md",
   "smi_ted_light/*.txt",
   "ckpt_files/*.ckpt",
-  "ckpt_files/fine-tuned/*.ckpt",
+  "ckpt_files/fine-tuned/gamma-ensemble-v1.safetensors",
 ]
 
 [tool.setuptools.exclude-package-data]

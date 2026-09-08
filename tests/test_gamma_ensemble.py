@@ -224,3 +224,47 @@ def test_batched_vjp_matches_ten_explicit_legacy_gradients():
 
 def test_legacy_model_keeps_exact_state_dict_names():
     assert tuple(Prf_to_Seg_Model().state_dict()) == LEGACY_STATE_KEYS
+
+
+def test_ensemble_segac_delegates_to_the_ensemble_mean_and_returns_cpu_tensor():
+    from tennetsac.utils.property import ensemble_segac
+
+    calls = []
+
+    class FakeEnsemble:
+        def predict_segac(self, sigma, temperature):
+            calls.append((sigma, temperature))
+            return torch.full_like(sigma, 3.25)
+
+    sigma = torch.ones(1, 51)
+    result = ensemble_segac(FakeEnsemble(), sigma, 298.15)
+
+    assert calls == [(sigma, 298.15)]
+    assert result.device.type == "cpu"
+    torch.testing.assert_close(result, torch.full_like(sigma, 3.25))
+
+
+def test_core_ensemble_predictor_forwards_modes_to_one_runtime_ensemble(monkeypatch):
+    from tennetsac import core
+
+    calls = []
+
+    class FakeEnsemble:
+        def predict_segac(
+            self, sigma, temperature, *, member_index=None, return_members=False
+        ):
+            calls.append((sigma, temperature, member_index, return_members))
+            return torch.full_like(sigma, 2.5)
+
+    monkeypatch.setattr(
+        core, "get_runtime", lambda: type("Runtime", (), {"gamma_ensemble": FakeEnsemble()})()
+    )
+    sigma = torch.ones(1, 51)
+
+    result = core.ensemble_predictor(
+        sigma, 298.15, member_index=2, return_members=False
+    )
+
+    assert calls == [(sigma, 298.15, 2, False)]
+    assert result.device.type == "cpu"
+    torch.testing.assert_close(result, torch.full_like(sigma, 2.5))
