@@ -128,6 +128,13 @@ def rewrite_contract_hash(contract, changed_path):
     contract.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def rewrite_all_contract_hashes(contract, sources):
+    payload = json.loads(contract.read_text(encoding="utf-8"))
+    for entry in payload["members"]:
+        entry["sha256"] = _sha256(sources / Path(entry["path"]).name)
+    contract.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def _expected_bundle_state(sources):
     expected = {}
     for number in range(1, 11):
@@ -206,6 +213,33 @@ def test_converter_rejects_a_shared_tensor_that_differs(tmp_path):
         converter.build_bundle(sources, tmp_path / "bundle.safetensors", contract)
 
 
+def test_converter_rejects_shared_tensors_that_differ_only_by_signed_zero(tmp_path):
+    sources, contract = write_legacy_sources(tmp_path)
+    key = "model_sigma.0.weight"
+    for number in range(1, 11):
+        state = torch.load(sources / f"{number}.ckpt", weights_only=True)
+        state[key] = state[key].clone()
+        state[key][0, 0] = -0.0 if number == 1 else 0.0
+        torch.save(state, sources / f"{number}.ckpt")
+    rewrite_all_contract_hashes(contract, sources)
+
+    with pytest.raises(ValueError, match="shared tensor differs.*model_sigma.0.weight"):
+        converter.build_bundle(sources, tmp_path / "bundle.safetensors", contract)
+
+
+def test_converter_accepts_shared_tensors_with_identical_nan_bits(tmp_path):
+    sources, contract = write_legacy_sources(tmp_path)
+    key = "model_sigma.0.weight"
+    for number in range(1, 11):
+        state = torch.load(sources / f"{number}.ckpt", weights_only=True)
+        state[key] = state[key].clone()
+        state[key][0, 0] = float("nan")
+        torch.save(state, sources / f"{number}.ckpt")
+    rewrite_all_contract_hashes(contract, sources)
+
+    converter.build_bundle(sources, tmp_path / "bundle.safetensors", contract)
+
+
 def test_converter_rejects_an_unexpected_checkpoint_key(tmp_path):
     sources, contract = write_legacy_sources(tmp_path)
     changed = torch.load(sources / "4.ckpt", weights_only=True)
@@ -230,6 +264,14 @@ def test_converter_rejects_an_extra_numbered_checkpoint(tmp_path):
     (sources / "11.ckpt").write_bytes(b"not approved")
 
     with pytest.raises(ValueError, match="unexpected checkpoint files.*11.ckpt"):
+        converter.build_bundle(sources, tmp_path / "bundle.safetensors", contract)
+
+
+def test_converter_rejects_a_non_checkpoint_extra_file(tmp_path):
+    sources, contract = write_legacy_sources(tmp_path)
+    (sources / "notes.txt").write_text("not approved", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unexpected checkpoint files.*notes.txt"):
         converter.build_bundle(sources, tmp_path / "bundle.safetensors", contract)
 
 
@@ -335,6 +377,29 @@ def test_converter_strictly_reloads_before_installing_output(tmp_path, monkeypat
     assert calls[0][1] == "cpu"
     assert not output.exists()
     assert sorted(path.name for path in tmp_path.iterdir()) == ["sources", "sources.json"]
+
+
+def test_strict_reload_rejects_a_signed_zero_bit_difference(tmp_path):
+    path = tmp_path / "bundle.safetensors"
+    converter.save_file({"value": torch.tensor([0.0])}, path)
+
+    with pytest.raises(ValueError, match="post-save tensor differs: value"):
+        converter._verify_saved_bundle(path, {"value": torch.tensor([-0.0])})
+
+
+def test_strict_reload_accepts_identical_nan_bits(tmp_path):
+    path = tmp_path / "bundle.safetensors"
+    value = torch.tensor([float("nan")])
+    converter.save_file({"value": value}, path)
+
+    converter._verify_saved_bundle(path, {"value": value.clone()})
+
+
+def test_byte_identity_accepts_identical_scalar_integer_buffers():
+    assert converter._tensors_have_identical_bytes(
+        torch.tensor(0, dtype=torch.int64),
+        torch.tensor(0, dtype=torch.int64),
+    )
 
 
 def test_independent_conversions_are_byte_identical(tmp_path):

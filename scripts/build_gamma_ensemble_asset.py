@@ -165,6 +165,21 @@ def _validate_source_state(
     return state
 
 
+def _tensors_have_identical_bytes(
+    left: torch.Tensor,
+    right: torch.Tensor,
+) -> bool:
+    """Return whether two tensors have the same dtype, shape, and bytes."""
+    return (
+        left.dtype == right.dtype
+        and left.shape == right.shape
+        and torch.equal(
+            left.detach().cpu().contiguous().reshape(-1).view(torch.uint8),
+            right.detach().cpu().contiguous().reshape(-1).view(torch.uint8),
+        )
+    )
+
+
 def _load_verified_members(
     source_dir: Path,
     contract: Mapping[str, Any],
@@ -186,7 +201,7 @@ def _load_verified_members(
         source_paths.append((entry, source_path))
 
     expected_names = {f"{number}.ckpt" for number in range(1, MEMBER_COUNT + 1)}
-    actual_names = {path.name for path in source_dir.glob("*.ckpt")}
+    actual_names = {path.name for path in source_dir.iterdir()}
     if actual_names != expected_names:
         missing = sorted(expected_names - actual_names)
         unexpected = sorted(actual_names - expected_names)
@@ -227,7 +242,7 @@ def _build_bundle_state(
 
     for member_number, member in enumerate(members[1:], start=2):
         for key in shared_keys:
-            if not torch.equal(member[key], first[key]):
+            if not _tensors_have_identical_bytes(member[key], first[key]):
                 raise ValueError(
                     f"shared tensor differs for member {member_number}: {key}"
                 )
@@ -261,7 +276,7 @@ def _verify_saved_bundle(
             raise ValueError(f"post-save tensor dtype differs: {key}")
         if actual_tensor.shape != expected_tensor.shape:
             raise ValueError(f"post-save tensor shape differs: {key}")
-        if not torch.equal(actual_tensor, expected_tensor):
+        if not _tensors_have_identical_bytes(actual_tensor, expected_tensor):
             raise ValueError(f"post-save tensor differs: {key}")
 
 
