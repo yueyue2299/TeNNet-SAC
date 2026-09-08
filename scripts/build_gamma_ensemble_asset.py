@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
+import io
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -16,7 +19,12 @@ from typing import Any
 import torch
 from safetensors.torch import load_file, save_file
 
-from tennetsac.gamma_ensemble import BUNDLE_METADATA, BUNDLE_TENSOR_BYTES
+from tennetsac.gamma_ensemble import (
+    BUNDLE_METADATA,
+    BUNDLE_TENSOR_BYTES,
+    read_safetensors_header,
+    validate_bundle_header,
+)
 from tennetsac.models.Prf2Gamma import Prf_to_Seg_Model
 
 if __package__:
@@ -46,12 +54,52 @@ class BundleReport:
     tensor_bytes: int
 
 
-def _sha256_file(path: Path) -> str:
+def _sha256_file(path_or_stream: Path | Any) -> str:
+    """Hash one path or already-open binary stream without changing its position."""
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(HASH_CHUNK_BYTES), b""):
-            digest.update(chunk)
+    if isinstance(path_or_stream, (str, os.PathLike)):
+        with Path(path_or_stream).open("rb") as stream:
+            for chunk in iter(lambda: stream.read(HASH_CHUNK_BYTES), b""):
+                digest.update(chunk)
+    else:
+        stream = path_or_stream
+        position = stream.tell()
+        try:
+            stream.seek(0)
+            for chunk in iter(lambda: stream.read(HASH_CHUNK_BYTES), b""):
+                digest.update(chunk)
+        finally:
+            stream.seek(position)
     return digest.hexdigest()
+
+
+def _read_regular_source_bytes(source_path: Path, logical_path: str) -> bytes:
+    """Capture source bytes from one checked descriptor before deserialization."""
+    entry_stat = source_path.lstat()
+    if stat.S_ISLNK(entry_stat.st_mode):
+        raise ValueError(f"source must not be a symlink: {logical_path}")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(source_path, flags)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise ValueError(f"source must not be a symlink: {logical_path}") from error
+        raise
+    try:
+        opened_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(opened_stat.st_mode):
+            raise ValueError(f"source checkpoint is not a file: {logical_path}")
+        if (entry_stat.st_dev, entry_stat.st_ino) != (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+        ):
+            raise ValueError(f"source changed while opening: {logical_path}")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            return b"".join(
+                iter(lambda: stream.read(HASH_CHUNK_BYTES), b"")
+            )
+    finally:
+        os.close(descriptor)
 
 
 def _require_exact_keys(
@@ -214,14 +262,15 @@ def _load_verified_members(
     members = []
     for entry, source_path in source_paths:
         logical_path = entry["path"]
-        actual_sha256 = _sha256_file(source_path)
+        source_bytes = _read_regular_source_bytes(source_path, logical_path)
+        actual_sha256 = _sha256_file(io.BytesIO(source_bytes))
         if actual_sha256 != entry["sha256"]:
             raise ValueError(
                 f"SHA256 mismatch for {logical_path}: "
                 f"expected {entry['sha256']}, got {actual_sha256}"
             )
         state = torch.load(
-            str(source_path),
+            io.BytesIO(source_bytes),
             map_location="cpu",
             weights_only=True,
         )
@@ -263,7 +312,21 @@ def _build_bundle_state(
 def _verify_saved_bundle(
     path: Path,
     expected: Mapping[str, torch.Tensor],
+    *,
+    verify_contract: bool = False,
 ) -> None:
+    if verify_contract:
+        try:
+            file_bytes = path.read_bytes()
+            header = read_safetensors_header(file_bytes)
+            header_size = int.from_bytes(file_bytes[:8], "little")
+            validate_bundle_header(
+                header,
+                expected,
+                payload_bytes=len(file_bytes) - 8 - header_size,
+            )
+        except Exception as error:
+            raise ValueError(f"post-save safetensors {error}") from error
     actual = load_file(path, device="cpu")
     if set(actual) != set(expected):
         raise ValueError(
@@ -279,6 +342,15 @@ def _verify_saved_bundle(
             raise ValueError(f"post-save tensor shape differs: {key}")
         if not _tensors_have_identical_bytes(actual_tensor, expected_tensor):
             raise ValueError(f"post-save tensor differs: {key}")
+
+
+def _install_new_file(temporary_path: Path, output_path: Path) -> None:
+    """Atomically link a converter-owned file only when the target is absent."""
+    try:
+        os.link(temporary_path, output_path)
+    except FileExistsError as error:
+        raise FileExistsError(f"output path already exists: {output_path}") from error
+    temporary_path.unlink()
 
 
 def build_bundle(
@@ -316,9 +388,9 @@ def build_bundle(
             temporary_path = Path(temporary.name)
         save_file(bundle_state, temporary_path, metadata=metadata)
         _canonicalize_safetensors_header(temporary_path)
-        _verify_saved_bundle(temporary_path, bundle_state)
+        _verify_saved_bundle(temporary_path, bundle_state, verify_contract=True)
         sha256 = _sha256_file(temporary_path)
-        os.replace(temporary_path, output_path)
+        _install_new_file(temporary_path, output_path)
         temporary_path = None
     except BaseException:
         if temporary_path is not None:

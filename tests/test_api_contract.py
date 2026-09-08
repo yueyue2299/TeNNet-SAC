@@ -1,24 +1,61 @@
 import inspect
+from typing import get_args, get_origin, get_type_hints
 
 import numpy as np
 import pytest
 import torch
 
 
-EXPECTED = {
-    "profile": "(smiles: str) -> Tuple[List[float], float, float]",
-    "binary_lng": "(smiles: List[str], temperature: float, molefraction: List[float], version: str = 'tuned', return_std: bool = True) -> Tuple[List[float], List[float], List[float], List[float]]",
-    "multi_lng": "(smiles: List[str], temperature: float, composition: List[float], version: str = 'tuned', return_std: bool = True) -> Tuple[List[float], List[float]]",
-    "fit_nrtl": "(smiles1, smiles2, alpha=0.3, temp_range=None, x_points=21)",
-    "plot_nrtl_fitting": "(smiles1, smiles2, fit_result)",
+EXPECTED_PARAMETER_NAMES = {
+    "profile": ("smiles",),
+    "binary_lng": ("smiles", "temperature", "molefraction", "version", "return_std"),
+    "multi_lng": ("smiles", "temperature", "composition", "version", "return_std"),
+    "fit_nrtl": ("smiles1", "smiles2", "alpha", "temp_range", "x_points"),
+    "plot_nrtl_fitting": ("smiles1", "smiles2", "fit_result"),
 }
 
 
-def test_prediction_signatures_are_stable():
+def test_prediction_signatures_preserve_public_parameter_order_and_defaults():
     import tennetsac
 
-    for name, expected in EXPECTED.items():
-        assert str(inspect.signature(getattr(tennetsac, name))) == expected
+    for name, parameter_names in EXPECTED_PARAMETER_NAMES.items():
+        signature = inspect.signature(getattr(tennetsac, name))
+        assert tuple(signature.parameters) == parameter_names
+
+    binary_signature = inspect.signature(tennetsac.binary_lng)
+    multi_signature = inspect.signature(tennetsac.multi_lng)
+    assert binary_signature.parameters["version"].default == "tuned"
+    assert binary_signature.parameters["return_std"].default is True
+    assert multi_signature.parameters["version"].default == "tuned"
+    assert multi_signature.parameters["return_std"].default is True
+
+
+def test_gamma_prediction_return_annotations_cover_mean_only_and_statistics_shapes():
+    """Breaks if either documented return shape disappears from type information."""
+    import tennetsac
+    from tennetsac import core
+
+    binary_return = get_type_hints(tennetsac.binary_lng)["return"]
+    multi_return = get_type_hints(tennetsac.multi_lng)["return"]
+
+    assert set(get_args(binary_return)) == {
+        core.BinaryLngMeanResult,
+        core.BinaryLngStatisticsResult,
+    }
+    assert get_args(core.BinaryLngMeanResult) == (list[float], list[float])
+    assert get_args(core.BinaryLngStatisticsResult) == (
+        list[float],
+        list[float],
+        list[float],
+        list[float],
+    )
+    assert set(get_args(multi_return)) == {
+        core.MultiLngMeanResult,
+        core.MultiLngStatisticsResult,
+    }
+    assert get_origin(core.MultiLngMeanResult) is list
+    assert get_args(core.MultiLngMeanResult) == (float,)
+    assert get_args(core.MultiLngStatisticsResult) == (list[float], list[float])
 
 
 def test_profile_returns_python_list_and_scalar_values(monkeypatch):

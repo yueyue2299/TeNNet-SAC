@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from safetensors.torch import save_file
+from safetensors.torch import load as load_safetensors, save_file
 
 import tennetsac.gamma_ensemble as loader
 from scripts._safetensors_canonical import _canonicalize_safetensors_header
@@ -75,6 +75,38 @@ def test_loader_rejects_digest_mismatch_before_safetensors_open(
     assert opens == []
 
 
+def test_loader_deserializes_hashed_bytes_after_path_replacement(monkeypatch, valid_bundle):
+    """Breaks if safe_open can see a replacement installed after digest verification."""
+    bundle, digest = valid_bundle
+    original_state = load_safetensors(bundle.read_bytes())
+    expected_bias = original_state["heads.0.0.bias"].clone()
+    attacker_state = {name: tensor.clone() for name, tensor in original_state.items()}
+    attacker_state["heads.0.0.bias"] += 1.0
+    replacement = bundle.with_name("replacement.safetensors")
+    save_file(attacker_state, replacement, metadata=BUNDLE_METADATA)
+    _canonicalize_safetensors_header(replacement)
+
+    real_hash = loader._sha256_file
+    replaced = False
+
+    def replace_path_after_hash(candidate):
+        nonlocal replaced
+        actual = real_hash(candidate)
+        if not replaced:
+            replacement.replace(bundle)
+            replaced = True
+        return actual
+
+    monkeypatch.setattr(loader, "_sha256_file", replace_path_after_hash)
+
+    model = load_gamma_ensemble(bundle, digest)
+
+    assert replaced
+    actual_bias = model.state_dict()["heads.0.0.bias"]
+    assert torch.equal(actual_bias, expected_bias)
+    assert not torch.equal(actual_bias, attacker_state["heads.0.0.bias"])
+
+
 @pytest.mark.parametrize("digest", ["A" * 64, "a" * 63, "g" * 64, 0, None])
 def test_loader_rejects_a_noncanonical_expected_digest(valid_bundle, digest):
     bundle, _ = valid_bundle
@@ -114,11 +146,20 @@ def test_loader_rejects_duplicate_header_tensor_names_before_safetensors_open(
     header = raw[8 : 8 + header_size].rstrip()
     duplicate = header[:-1] + b',"trunk.bn2.bias":{"dtype":"F32","shape":[256],"data_offsets":[0,1024]}}'
     _rewrite_header(bundle, duplicate)
+    opens = []
+    real_safe_open = loader.safe_open
+
+    def record_open(*args, **kwargs):
+        opens.append(args)
+        return real_safe_open(*args, **kwargs)
+
+    monkeypatch.setattr(loader, "safe_open", record_open)
 
     with pytest.raises(GammaEnsembleLoadError, match="duplicate.*trunk.bn2.bias") as caught:
         load_gamma_ensemble(bundle, _rehash(bundle))
 
     assert isinstance(caught.value.__cause__, ValueError)
+    assert opens == []
 
 
 def test_loader_rejects_malformed_header_and_preserves_json_cause(valid_bundle):

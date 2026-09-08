@@ -45,6 +45,8 @@ FIXED_TEMPERATURE_KELVIN = 298.15
 REPEATED_BATCHES = 5
 MIN_MEAN_SPEEDUP = 2.0
 SPEED_THRESHOLD_EXIT = 2
+MIN_PACKAGED_FINE_TUNED_REDUCTION_BYTES = 30 * 1024 * 1024
+SIZE_REDUCTION_THRESHOLD_EXIT = 3
 HASH_CHUNK_BYTES = 1024 * 1024
 
 
@@ -470,6 +472,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"benchmark configuration failure: {error}", file=sys.stderr)
         return 1
     print(_text_report(report))
+    packaged_reduction = report["reductions"]["file_bytes"]["reduction_bytes"]
+    if packaged_reduction < MIN_PACKAGED_FINE_TUNED_REDUCTION_BYTES:
+        print(
+            "benchmark size failure: packaged fine-tuned reduction is below "
+            f"the required {MIN_PACKAGED_FINE_TUNED_REDUCTION_BYTES / (1024 * 1024):.0f} MiB",
+            file=sys.stderr,
+        )
+        return SIZE_REDUCTION_THRESHOLD_EXIT
     if report["speed_ratios"]["legacy_mean_over_new_mean"] < MIN_MEAN_SPEEDUP:
         print(
             "benchmark speed failure: new ensemble mean is below "

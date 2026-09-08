@@ -5,6 +5,14 @@ import numpy as np
 from .runtime import get_runtime
 from .utils.property import calc_ln_gamma, calc_ln_gamma_binary
 
+
+BinaryLngMeanResult = tuple[list[float], list[float]]
+BinaryLngStatisticsResult = tuple[
+    list[float], list[float], list[float], list[float]
+]
+MultiLngMeanResult = list[float]
+MultiLngStatisticsResult = tuple[list[float], list[float]]
+
 # === Define functions ===
 def sigma_profile_wrapper(smiles):
     from .utils.property import get_sigma_profile
@@ -70,7 +78,7 @@ def profile(smiles: str) -> Tuple[List[float], float, float]:
     return s_prf.squeeze().tolist(), area, volume
 
 def binary_lng(smiles: List[str], temperature: float, molefraction: List[float],
-               version: str = "tuned", return_std: bool = True) -> Tuple[List[float], List[float], List[float], List[float]]:
+               version: str = "tuned", return_std: bool = True) -> BinaryLngMeanResult | BinaryLngStatisticsResult:
     """
     Calculate the natural logarithm of activity coefficients (ln γ) for a binary mixture.
 
@@ -112,7 +120,7 @@ def binary_lng(smiles: List[str], temperature: float, molefraction: List[float],
     return tuple(value.tolist() for value in values)
 
 def multi_lng(smiles: List[str], temperature: float, composition: List[float],
-              version: str = "tuned", return_std: bool = True) -> Tuple[List[float], List[float]]:
+              version: str = "tuned", return_std: bool = True) -> MultiLngMeanResult | MultiLngStatisticsResult:
     """
     Calculate the natural logarithm of activity coefficients (ln γ) for a multicomponent mixture.
 

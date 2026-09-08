@@ -16,12 +16,12 @@ def isolate_process_global_thread_control(monkeypatch):
     monkeypatch.setattr(benchmark, "_configure_threads", lambda _threads: None)
 
 
-def _assets() -> benchmark.BenchmarkAssets:
+def _assets(*, legacy_file_bytes: int = 52_000_000) -> benchmark.BenchmarkAssets:
     """Return independently specified, already-verified benchmark evidence."""
     return benchmark.BenchmarkAssets(
         legacy_models=(),
         ensemble=object(),
-        legacy_file_bytes=52_000_000,
+        legacy_file_bytes=legacy_file_bytes,
         legacy_tensor_bytes=52_025_600,
         bundle_file_bytes=5_210_544,
         bundle_tensor_bytes=5_202_560,
@@ -36,7 +36,9 @@ def _assets() -> benchmark.BenchmarkAssets:
     )
 
 
-def _measurements(*, new_mean_median_ns: float = 200.0) -> dict[str, tuple[float, ...]]:
+def _measurements(
+    *, new_mean_median_ns: float = 200.0, new_mean_std_median_ns: float = 250.0
+) -> dict[str, tuple[float, ...]]:
     """Stable batches expose report calculation without measuring real models."""
     return {
         "legacy_ten_member_mean": (500.0, 505.0, 495.0, 500.0, 500.0),
@@ -48,7 +50,13 @@ def _measurements(*, new_mean_median_ns: float = 200.0) -> dict[str, tuple[float
             new_mean_median_ns,
         ),
         "legacy_ten_member_mean_std_reference": (750.0, 755.0, 745.0, 750.0, 750.0),
-        "new_ensemble_mean_std": (250.0, 255.0, 245.0, 250.0, 250.0),
+        "new_ensemble_mean_std": (
+            new_mean_std_median_ns,
+            new_mean_std_median_ns + 5.0,
+            new_mean_std_median_ns - 5.0,
+            new_mean_std_median_ns,
+            new_mean_std_median_ns,
+        ),
     }
 
 
@@ -69,8 +77,17 @@ def _argv(output: Path) -> list[str]:
     ]
 
 
-def _patch_successful_benchmark(monkeypatch, *, new_mean_median_ns: float = 200.0):
-    monkeypatch.setattr(benchmark, "load_verified_assets", lambda *_args: _assets())
+def _patch_successful_benchmark(
+    monkeypatch,
+    *,
+    assets: benchmark.BenchmarkAssets | None = None,
+    new_mean_median_ns: float = 200.0,
+    new_mean_std_median_ns: float = 250.0,
+):
+    benchmark_assets = assets or _assets()
+    monkeypatch.setattr(
+        benchmark, "load_verified_assets", lambda *_args: benchmark_assets
+    )
     monkeypatch.setattr(
         benchmark,
         "verify_numerical_parity",
@@ -82,7 +99,10 @@ def _patch_successful_benchmark(monkeypatch, *, new_mean_median_ns: float = 200.
     monkeypatch.setattr(
         benchmark,
         "measure_workloads",
-        lambda *_args: _measurements(new_mean_median_ns=new_mean_median_ns),
+        lambda *_args: _measurements(
+            new_mean_median_ns=new_mean_median_ns,
+            new_mean_std_median_ns=new_mean_std_median_ns,
+        ),
     )
     monkeypatch.setattr(benchmark, "environment_report", lambda _threads: {"python": "test"})
 
@@ -196,3 +216,31 @@ def test_cli_returns_a_distinct_failure_when_mean_speedup_misses_threshold(
         500.0 / 251.0
     )
     assert report["speed_ratios"]["legacy_mean_std_over_new_mean_std"] == 3.0
+
+
+def test_cli_returns_a_distinct_failure_when_packaged_size_reduction_misses_gate(
+    monkeypatch, tmp_path, capsys
+):
+    """Breaks if an undersized structural reduction is reported as success."""
+    below_gate_assets = _assets(
+        legacy_file_bytes=5_210_544 + 30 * 1024 * 1024 - 1
+    )
+    _patch_successful_benchmark(monkeypatch, assets=below_gate_assets)
+    output = tmp_path / "too-large.json"
+
+    assert benchmark.main(_argv(output)) == benchmark.SIZE_REDUCTION_THRESHOLD_EXIT
+    assert benchmark.SIZE_REDUCTION_THRESHOLD_EXIT != benchmark.SPEED_THRESHOLD_EXIT
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["reductions"]["file_bytes"]["reduction_bytes"] == (
+        benchmark.MIN_PACKAGED_FINE_TUNED_REDUCTION_BYTES - 1
+    )
+    assert "size failure" in capsys.readouterr().err
+
+
+def test_cli_does_not_apply_a_speed_gate_to_mean_plus_standard_deviation(
+    monkeypatch, tmp_path
+):
+    """The declared performance requirement covers the mean-only path only."""
+    _patch_successful_benchmark(monkeypatch, new_mean_std_median_ns=1_000.0)
+
+    assert benchmark.main(_argv(tmp_path / "slow-statistics.json")) == 0

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
+import io
 import json
+import os
 import stat
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -51,23 +55,62 @@ def _reject_duplicate_names(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _sha256_file(path: Path) -> str:
+def _sha256_file(path_or_stream: Path | Any) -> str:
+    """Hash one path or already-open binary stream without changing its position."""
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(HASH_CHUNK_BYTES), b""):
-            digest.update(chunk)
+    if isinstance(path_or_stream, (str, os.PathLike)):
+        with Path(path_or_stream).open("rb") as stream:
+            for chunk in iter(lambda: stream.read(HASH_CHUNK_BYTES), b""):
+                digest.update(chunk)
+    else:
+        stream = path_or_stream
+        position = stream.tell()
+        try:
+            stream.seek(0)
+            for chunk in iter(lambda: stream.read(HASH_CHUNK_BYTES), b""):
+                digest.update(chunk)
+        finally:
+            stream.seek(position)
     return digest.hexdigest()
 
 
-def _read_header(path: Path) -> Mapping[str, Any]:
-    with path.open("rb") as stream:
-        prefix = stream.read(8)
-        if len(prefix) != 8:
-            raise ValueError("invalid safetensors header prefix")
-        header_size = int.from_bytes(prefix, "little")
-        raw_header = stream.read(header_size)
-        if len(raw_header) != header_size:
-            raise ValueError("truncated safetensors header")
+def _read_regular_file_bytes(path: Path, description: str) -> bytes:
+    """Read one immutable descriptor so later pathname replacement is harmless."""
+    entry_stat = path.lstat()
+    if stat.S_ISLNK(entry_stat.st_mode):
+        raise ValueError(f"{description} must not be a symlink: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise ValueError(f"{description} must not be a symlink: {path}") from error
+        raise
+    try:
+        opened_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(opened_stat.st_mode):
+            raise ValueError(f"{description} must be a regular file: {path}")
+        if (entry_stat.st_dev, entry_stat.st_ino) != (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+        ):
+            raise ValueError(f"{description} changed while opening: {path}")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            return b"".join(
+                iter(lambda: stream.read(HASH_CHUNK_BYTES), b"")
+            )
+    finally:
+        os.close(descriptor)
+
+
+def read_safetensors_header(file_bytes: bytes) -> Mapping[str, Any]:
+    """Parse a raw safetensors header while rejecting duplicate JSON names."""
+    if len(file_bytes) < 8:
+        raise ValueError("invalid safetensors header prefix")
+    header_size = int.from_bytes(file_bytes[:8], "little")
+    raw_header = file_bytes[8 : 8 + header_size]
+    if len(raw_header) != header_size:
+        raise ValueError("truncated safetensors header")
     try:
         header = json.loads(raw_header, object_pairs_hook=_reject_duplicate_names)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -96,13 +139,15 @@ def _safetensors_dtype(dtype: torch.dtype) -> str:
         raise ValueError(f"unsupported expected tensor dtype: {dtype}") from error
 
 
-def _validate_header(
+def validate_bundle_header(
     header: Mapping[str, Any],
     expected: Mapping[str, torch.Tensor],
+    *,
+    payload_bytes: int | None = None,
 ) -> None:
     metadata = header.get("__metadata__")
     if metadata != BUNDLE_METADATA:
-        raise ValueError("safetensors metadata mismatch")
+        raise ValueError("metadata mismatch")
 
     tensor_names = {name for name in header if name != "__metadata__"}
     expected_names = set(expected)
@@ -117,11 +162,13 @@ def _validate_header(
             f"tensor count mismatch: expected {BUNDLE_TENSOR_COUNT}, got {len(tensor_names)}"
         )
 
-    header_tensor_bytes = 0
+    spans: list[tuple[int, int, str]] = []
     for name in sorted(expected):
         descriptor = header[name]
         if not isinstance(descriptor, Mapping):
             raise ValueError(f"invalid tensor descriptor: {name}")
+        if set(descriptor) != {"dtype", "shape", "data_offsets"}:
+            raise ValueError(f"tensor descriptor keys mismatch: {name}")
         expected_dtype = _safetensors_dtype(expected[name].dtype)
         if descriptor.get("dtype") != expected_dtype:
             raise ValueError(
@@ -143,11 +190,32 @@ def _validate_header(
             or offsets[1] < offsets[0]
         ):
             raise ValueError(f"invalid tensor data offsets: {name}")
-        header_tensor_bytes += offsets[1] - offsets[0]
-    if header_tensor_bytes != BUNDLE_TENSOR_BYTES:
+        expected_tensor_bytes = expected[name].numel() * expected[name].element_size()
+        actual_tensor_bytes = offsets[1] - offsets[0]
+        if actual_tensor_bytes != expected_tensor_bytes:
+            raise ValueError(
+                f"tensor bytes mismatch: {name}; expected {expected_tensor_bytes}, "
+                f"got {actual_tensor_bytes}"
+            )
+        spans.append((offsets[0], offsets[1], name))
+
+    expected_offset = 0
+    for start, end, name in sorted(spans):
+        if start != expected_offset:
+            raise ValueError(
+                f"tensor data offsets mismatch: {name}; expected start "
+                f"{expected_offset}, got {start}"
+            )
+        expected_offset = end
+    if expected_offset != BUNDLE_TENSOR_BYTES:
         raise ValueError(
             "tensor bytes mismatch: "
-            f"expected {BUNDLE_TENSOR_BYTES}, got {header_tensor_bytes}"
+            f"expected {BUNDLE_TENSOR_BYTES}, got {expected_offset}"
+        )
+    if payload_bytes is not None and payload_bytes != expected_offset:
+        raise ValueError(
+            "safetensors payload bytes mismatch: "
+            f"expected {expected_offset}, got {payload_bytes}"
         )
 
 
@@ -185,6 +253,16 @@ def _load_tensors(path: Path, expected: Mapping[str, torch.Tensor]) -> dict[str,
     return loaded
 
 
+def _write_private_staging_copy(file_bytes: bytes) -> Path:
+    """Create a private, verified copy for safetensors' path-based reader."""
+    with tempfile.NamedTemporaryFile(
+        mode="w+b", suffix=".safetensors", delete=False
+    ) as staging:
+        staging.write(file_bytes)
+        staging.flush()
+        return Path(staging.name)
+
+
 def load_gamma_ensemble(path: Path, expected_sha256: str) -> GammaEnsemble:
     """Verify and load one exact CPU/eval ten-member gamma ensemble."""
     if not _is_lower_hex_digest(expected_sha256):
@@ -193,24 +271,29 @@ def load_gamma_ensemble(path: Path, expected_sha256: str) -> GammaEnsemble:
         )
     path = Path(path)
     try:
-        if path.is_symlink():
-            raise ValueError(f"gamma ensemble asset must not be a symlink: {path}")
-        mode = path.stat().st_mode
-        if not stat.S_ISREG(mode):
-            raise ValueError(f"gamma ensemble asset must be a regular file: {path}")
+        file_bytes = _read_regular_file_bytes(path, "gamma ensemble asset")
         if path.name != BUNDLE_FILENAME:
             raise ValueError(
                 f"gamma ensemble asset filename must be {BUNDLE_FILENAME}: {path}"
             )
-        actual_sha256 = _sha256_file(path)
+        actual_sha256 = _sha256_file(io.BytesIO(file_bytes))
         if actual_sha256 != expected_sha256:
             raise ValueError(
                 f"sha256 mismatch: expected {expected_sha256}, got {actual_sha256}"
             )
         expected = GammaEnsemble().eval().state_dict()
-        header = _read_header(path)
-        _validate_header(header, expected)
-        tensors = _load_tensors(path, expected)
+        header = read_safetensors_header(file_bytes)
+        header_size = int.from_bytes(file_bytes[:8], "little")
+        validate_bundle_header(
+            header,
+            expected,
+            payload_bytes=len(file_bytes) - 8 - header_size,
+        )
+        staging_path = _write_private_staging_copy(file_bytes)
+        try:
+            tensors = _load_tensors(staging_path, expected)
+        finally:
+            staging_path.unlink(missing_ok=True)
         model = GammaEnsemble()
         model.load_state_dict(tensors, strict=True)
         return model.eval()

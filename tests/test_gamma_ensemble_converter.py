@@ -155,6 +155,18 @@ def _raw_safetensors_header(path):
         return json.loads(stream.read(header_size))
 
 
+def _write_safetensors_header(path, header):
+    data = path.read_bytes()
+    header_size = int.from_bytes(data[:8], "little")
+    serialized = json.dumps(header, separators=(",", ":")).encode("utf-8")
+    assert len(serialized) <= header_size
+    path.write_bytes(
+        header_size.to_bytes(8, "little")
+        + serialized.ljust(header_size, b" ")
+        + data[8 + header_size :]
+    )
+
+
 def test_repository_source_contract_is_exact_and_immutable():
     contract_path = Path(converter.__file__).with_name("gamma_ensemble_sources.json")
     payload = json.loads(contract_path.read_text(encoding="utf-8"))
@@ -289,6 +301,44 @@ def test_converter_rejects_a_wrong_hash_before_loading(tmp_path, monkeypatch):
         converter.build_bundle(sources, tmp_path / "bundle.safetensors", contract)
 
 
+def test_converter_deserializes_the_hashed_source_descriptor_after_path_replacement(
+    tmp_path, monkeypatch
+):
+    """Breaks if torch.load reopens a source name after its digest was checked."""
+    sources, contract = write_legacy_sources(tmp_path)
+    source = sources / "1.ckpt"
+    expected_bias = torch.load(source, weights_only=True)["model_final.0.bias"].clone()
+    replacement = tmp_path / "replacement.ckpt"
+    attacker_state = torch.load(source, weights_only=True)
+    attacker_state["model_final.0.bias"] = (
+        attacker_state["model_final.0.bias"].clone() + 1.0
+    )
+    torch.save(attacker_state, replacement)
+    replacement_bytes = replacement.read_bytes()
+
+    real_hash = converter._sha256_file
+    replaced = False
+
+    def replace_path_after_hash(candidate):
+        nonlocal replaced
+        digest = real_hash(candidate)
+        if not replaced:
+            replacement.replace(source)
+            replaced = True
+        return digest
+
+    monkeypatch.setattr(converter, "_sha256_file", replace_path_after_hash)
+    output = tmp_path / "bundle.safetensors"
+
+    converter.build_bundle(sources, output, contract)
+
+    assert replaced
+    assert source.read_bytes() == replacement_bytes
+    actual_bias = load_file(output, device="cpu")["heads.0.0.bias"]
+    assert torch.equal(actual_bias, expected_bias)
+    assert not torch.equal(actual_bias, attacker_state["model_final.0.bias"])
+
+
 @pytest.mark.parametrize("corruption", ["dtype", "shape"])
 def test_converter_rejects_a_wrong_tensor_dtype_or_shape(tmp_path, corruption):
     sources, contract = write_legacy_sources(tmp_path)
@@ -324,6 +374,26 @@ def test_converter_preserves_an_existing_output_before_source_access(tmp_path):
         converter.build_bundle(tmp_path / "missing", output, tmp_path / "missing.json")
 
     assert output.read_bytes() == b"keep me"
+
+
+def test_converter_never_overwrites_a_target_created_after_validation(tmp_path, monkeypatch):
+    """Breaks if installation replaces a target that appears during conversion."""
+    sources, contract = write_legacy_sources(tmp_path)
+    output = tmp_path / "bundle.safetensors"
+    racing_bytes = b"racing target must survive"
+    real_verify = converter._verify_saved_bundle
+
+    def create_target_immediately_before_install(path, expected, **kwargs):
+        real_verify(path, expected, **kwargs)
+        output.write_bytes(racing_bytes)
+
+    monkeypatch.setattr(converter, "_verify_saved_bundle", create_target_immediately_before_install)
+
+    with pytest.raises(FileExistsError, match="output path already exists"):
+        converter.build_bundle(sources, output, contract)
+
+    assert output.read_bytes() == racing_bytes
+    assert not list(tmp_path.glob(".bundle.safetensors.*.tmp"))
 
 
 def test_converter_removes_only_its_temporary_file_after_interrupted_save(
@@ -377,6 +447,29 @@ def test_converter_strictly_reloads_before_installing_output(tmp_path, monkeypat
     assert calls[0][1] == "cpu"
     assert not output.exists()
     assert sorted(path.name for path in tmp_path.iterdir()) == ["sources", "sources.json"]
+
+
+def test_converter_rejects_wrong_post_save_metadata_before_installing_output(
+    tmp_path, monkeypatch
+):
+    """Breaks if post-save validation checks tensor bytes but not the header contract."""
+    sources, contract = write_legacy_sources(tmp_path)
+    real_canonicalize = converter._canonicalize_safetensors_header
+
+    def write_wrong_metadata(path):
+        real_canonicalize(path)
+        header = _raw_safetensors_header(path)
+        header["__metadata__"]["member_count"] = "9"
+        _write_safetensors_header(path, header)
+
+    monkeypatch.setattr(converter, "_canonicalize_safetensors_header", write_wrong_metadata)
+    output = tmp_path / "bundle.safetensors"
+
+    with pytest.raises(ValueError, match="post-save safetensors metadata mismatch"):
+        converter.build_bundle(sources, output, contract)
+
+    assert not output.exists()
+    assert not list(tmp_path.glob(".bundle.safetensors.*.tmp"))
 
 
 def test_strict_reload_rejects_a_signed_zero_bit_difference(tmp_path):

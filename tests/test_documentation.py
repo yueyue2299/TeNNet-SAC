@@ -49,6 +49,16 @@ def _notebook() -> dict:
     )
 
 
+def _has_explicit_false_return_std(call: ast.Call) -> bool:
+    """Return whether a public prediction call preserves mean-only results."""
+    return any(
+        keyword.arg == "return_std"
+        and isinstance(keyword.value, ast.Constant)
+        and keyword.value.value is False
+        for keyword in call.keywords
+    )
+
+
 def test_example_notebook_uses_only_the_public_package_api() -> None:
     notebook = _notebook()
     notebook_source = "".join(
@@ -74,23 +84,40 @@ def test_example_notebook_uses_the_keyword_multicomponent_contract() -> None:
         if cell["cell_type"] == "code"
     )
     tree = ast.parse(code)
-    calls = [
+    multi_calls = [
         node
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "multi_lng"
     ]
+    binary_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "binary_lng"
+    ]
 
-    assert len(calls) == 1
-    call = calls[0]
+    assert len(binary_calls) == 1
+    assert _has_explicit_false_return_std(binary_calls[0])
+
+    assert len(multi_calls) == 1
+    call = multi_calls[0]
     assert call.args == []
-    assert {keyword.arg: ast.unparse(keyword.value) for keyword in call.keywords} == {
-        "smiles": "smiles_list",
-        "temperature": "temperature",
-        "composition": "mole_fraction_list",
-        "version": "version",
+    keyword_values = {keyword.arg: keyword.value for keyword in call.keywords}
+    assert set(keyword_values) == {
+        "smiles",
+        "temperature",
+        "composition",
+        "version",
+        "return_std",
     }
+    assert ast.unparse(keyword_values["smiles"]) == "smiles_list"
+    assert ast.unparse(keyword_values["temperature"]) == "temperature"
+    assert ast.unparse(keyword_values["composition"]) == "mole_fraction_list"
+    assert ast.unparse(keyword_values["version"]) == "version"
+    assert _has_explicit_false_return_std(call)
     assert "model_type" not in notebook_source
 
 
