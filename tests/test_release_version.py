@@ -1,13 +1,18 @@
-import importlib.util
 import hashlib
+import importlib.util
+import shutil
+import subprocess
+import sys
 import tarfile
 import zipfile
 from pathlib import Path
 
 import pytest
+from packaging.version import Version
 
 
 SCRIPT_PATH = Path(__file__).parents[1] / "scripts" / "verify_release_version.py"
+ROOT = Path(__file__).parents[1]
 
 
 def _release_module():
@@ -78,6 +83,53 @@ def test_invalid_release_tag_is_rejected(tag):
 
     with pytest.raises(ValueError):
         module.version_from_tag(tag)
+
+
+def test_setuptools_scm_ignores_model_release_tags(tmp_path):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    shutil.copy(ROOT / "pyproject.toml", repository / "pyproject.toml")
+
+    def git(*arguments: str) -> None:
+        subprocess.run(
+            ["git", *arguments],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    git("init")
+    git("config", "user.email", "ci@example.invalid")
+    git("config", "user.name", "CI")
+    git("config", "commit.gpgsign", "false")
+    git("config", "tag.gpgSign", "false")
+    git("add", "pyproject.toml")
+    git("commit", "-m", "initial")
+    git("tag", "v0.2.0")
+
+    marker = repository / "marker.txt"
+    marker.write_text("model release\n", encoding="utf-8")
+    git("add", "marker.txt")
+    git("commit", "-m", "model release")
+    git("tag", "model-smi-ted-light-v9")
+
+    marker.write_text("development\n", encoding="utf-8")
+    git("add", "marker.txt")
+    git("commit", "-m", "development")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "setuptools_scm"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    version = Version(result.stdout.strip())
+
+    assert version.release == (0, 2, 0)
+    assert version.post == 1
+    assert version.dev == 2
 
 
 def test_verify_release_version_accepts_matching_wheel_and_sdist(tmp_path):
