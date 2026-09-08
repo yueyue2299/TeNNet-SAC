@@ -2,6 +2,16 @@ import torch
 import torch.nn as nn
 import torch.autograd as autograd
 
+
+def _new_final_head(hidden_2_dim: int = 256) -> nn.Sequential:
+    return nn.Sequential(
+        nn.Linear(hidden_2_dim, 128),
+        nn.GELU(),
+        nn.Linear(128, 64),
+        nn.GELU(),
+        nn.Linear(64, 1),
+    )
+
 class ResidualBlock(nn.Module):
     def __init__(self, in_features, hidden_features=None, activation=nn.GELU):
         """
@@ -62,13 +72,7 @@ class Prf_to_Seg_Model(nn.Module):
         # Resudual Block
         self.res_block = ResidualBlock(in_features=hidden_2_dim, hidden_features=hidden_2_dim, activation=nn.GELU)
 
-        self.model_final = nn.Sequential(
-            nn.Linear(hidden_2_dim, 128),
-            nn.GELU(),
-            nn.Linear(128, 64),
-            nn.GELU(),
-            nn.Linear(64, 1),
-        )
+        self.model_final = _new_final_head(hidden_2_dim)
 
     def forward(self, sigs, t):
         """
@@ -117,4 +121,3 @@ class Prf_to_Seg_Model(nn.Module):
           )[0]  # shape: (batch_size, sig_dim)
         segs = grad
         return gchg, segs
-
