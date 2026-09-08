@@ -8,6 +8,7 @@ import torch
 from safetensors import safe_open
 from safetensors.torch import load_file
 
+from scripts import _safetensors_canonical as canonical
 from scripts import build_smi_ted_inference_asset as converter
 
 
@@ -472,7 +473,7 @@ def test_header_canonicalization_removes_temp_file_when_replace_fails(
         assert Path(temp_path).parent == artifact_path.parent
         raise OSError("replace failed")
 
-    monkeypatch.setattr(converter.os, "replace", reject_replace)
+    monkeypatch.setattr(canonical.os, "replace", reject_replace)
 
     with pytest.raises(OSError, match="replace failed"):
         converter._canonicalize_safetensors_header(artifact_path)

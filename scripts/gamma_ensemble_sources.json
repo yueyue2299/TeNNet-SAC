@@ -1,0 +1,57 @@
+{
+  "format_version": 1,
+  "source_bundle_version": "1.0.0",
+  "source_commit": "7711c6bd3dff7e2d7cff00590062f9e1a0ca605a",
+  "members": [
+    {
+      "member": 1,
+      "path": "ckpt_files/fine-tuned/1.ckpt",
+      "sha256": "134be46cce6839a7b08250750e4803c8198a4725d5973ca124db76dd488aedc1"
+    },
+    {
+      "member": 2,
+      "path": "ckpt_files/fine-tuned/2.ckpt",
+      "sha256": "d763688bbe2898fc182ae6e9b39436a678ad892510c76b510c43c389e87d4c5b"
+    },
+    {
+      "member": 3,
+      "path": "ckpt_files/fine-tuned/3.ckpt",
+      "sha256": "15232df78dbbce274818e00bdfff455a163fbb9ff8af1ef3ba4de73650519400"
+    },
+    {
+      "member": 4,
+      "path": "ckpt_files/fine-tuned/4.ckpt",
+      "sha256": "bf01d2c6832b161ddf12d789dc886a3c3065a1810948d196f103a89c94f0daeb"
+    },
+    {
+      "member": 5,
+      "path": "ckpt_files/fine-tuned/5.ckpt",
+      "sha256": "937a02283521bba254b917685f4db265c48617732f9c5bbfffb14eaaf1d38813"
+    },
+    {
+      "member": 6,
+      "path": "ckpt_files/fine-tuned/6.ckpt",
+      "sha256": "7588bfe7a265752395373cf930ede2e721da2cb37fd7779a7b3b94d6c3590e79"
+    },
+    {
+      "member": 7,
+      "path": "ckpt_files/fine-tuned/7.ckpt",
+      "sha256": "f4c03f8281b7ac56213e5e04123c208fc4f2030ca610684bd1cbd9aa59f7e16d"
+    },
+    {
+      "member": 8,
+      "path": "ckpt_files/fine-tuned/8.ckpt",
+      "sha256": "0ff319a81281b4315638281283433590e6adf7b7ab17039919601747f736096d"
+    },
+    {
+      "member": 9,
+      "path": "ckpt_files/fine-tuned/9.ckpt",
+      "sha256": "73c65639135717a3eaa7130c03ea6f85fa3f95ed1b5937b5b73611bd33378c70"
+    },
+    {
+      "member": 10,
+      "path": "ckpt_files/fine-tuned/10.ckpt",
+      "sha256": "def4bb97274011564b33d55666bcc5d4d2bcae9c422cbf2c96529c7c364ebfcc"
+    }
+  ]
+}
