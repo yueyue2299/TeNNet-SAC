@@ -13,7 +13,7 @@ class FakeModel:
         return torch.tensor([[1.0]], device=self.device)
 
 
-def test_chemberta_embedder_forwards_the_pinned_revision(monkeypatch):
+def test_chemberta_embedder_avoids_deprecated_resume_and_unused_pooler(monkeypatch):
     calls = []
 
     def tokenizer_from_pretrained(*args, **kwargs):
@@ -35,8 +35,23 @@ def test_chemberta_embedder_forwards_the_pinned_revision(monkeypatch):
     )
 
     assert calls == [
-        ("tokenizer", ("DeepChem/ChemBERTa-77M-MLM",), {"revision": "ed8a5374f2024ec8da53760af91a33fb8f6a15ff"}),
-        ("model", ("DeepChem/ChemBERTa-77M-MLM",), {"revision": "ed8a5374f2024ec8da53760af91a33fb8f6a15ff"}),
+        (
+            "tokenizer",
+            ("DeepChem/ChemBERTa-77M-MLM",),
+            {
+                "revision": "ed8a5374f2024ec8da53760af91a33fb8f6a15ff",
+                "resume_download": None,
+            },
+        ),
+        (
+            "model",
+            ("DeepChem/ChemBERTa-77M-MLM",),
+            {
+                "revision": "ed8a5374f2024ec8da53760af91a33fb8f6a15ff",
+                "resume_download": None,
+                "add_pooling_layer": False,
+            },
+        ),
     ]
 
 

@@ -5,8 +5,17 @@ import torch
 # === ChemBERTa2 Embedding  ===
 class ChemBERTaEmbedder:
     def __init__(self, model_name, revision, max_length=128, device="cpu"):
-        self.tokenizer = RobertaTokenizer.from_pretrained(model_name, revision=revision)
-        self.model = RobertaModel.from_pretrained(model_name, revision=revision).to(device)
+        self.tokenizer = RobertaTokenizer.from_pretrained(
+            model_name,
+            revision=revision,
+            resume_download=None,
+        )
+        self.model = RobertaModel.from_pretrained(
+            model_name,
+            revision=revision,
+            resume_download=None,
+            add_pooling_layer=False,
+        ).to(device)
         self.max_length = max_length
         self.device = device
 

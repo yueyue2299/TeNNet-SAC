@@ -49,6 +49,7 @@ dev = [
   "PyYAML>=6",
   "build>=1.2",
   "twine>=5",
+  "ipywidgets",
   "jupyterlab",
 ]
 
