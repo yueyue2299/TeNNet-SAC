@@ -49,12 +49,10 @@ def _notebook() -> dict:
     )
 
 
-def _has_explicit_false_return_std(call: ast.Call) -> bool:
-    """Return whether a public prediction call preserves mean-only results."""
+def _has_return_std_keyword(call: ast.Call) -> bool:
+    """Return whether a public prediction call overrides the v0.2.0 default."""
     return any(
         keyword.arg == "return_std"
-        and isinstance(keyword.value, ast.Constant)
-        and keyword.value.value is False
         for keyword in call.keywords
     )
 
@@ -100,7 +98,7 @@ def test_example_notebook_uses_the_keyword_multicomponent_contract() -> None:
     ]
 
     assert len(binary_calls) == 1
-    assert _has_explicit_false_return_std(binary_calls[0])
+    assert not _has_return_std_keyword(binary_calls[0])
 
     assert len(multi_calls) == 1
     call = multi_calls[0]
@@ -111,14 +109,64 @@ def test_example_notebook_uses_the_keyword_multicomponent_contract() -> None:
         "temperature",
         "composition",
         "version",
-        "return_std",
     }
     assert ast.unparse(keyword_values["smiles"]) == "smiles_list"
     assert ast.unparse(keyword_values["temperature"]) == "temperature"
     assert ast.unparse(keyword_values["composition"]) == "mole_fraction_list"
     assert ast.unparse(keyword_values["version"]) == "version"
-    assert _has_explicit_false_return_std(call)
+    assert not _has_return_std_keyword(call)
     assert "model_type" not in notebook_source
+
+
+def test_example_notebook_plot_helpers_render_profiles_and_uncertainty(
+    monkeypatch,
+) -> None:
+    import matplotlib.pyplot as plt
+
+    monkeypatch.setattr(plt, "show", lambda: None)
+
+    notebook = _notebook()
+    helper_cells = [
+        cell
+        for cell in notebook["cells"]
+        if "plot-helpers" in cell.get("metadata", {}).get("tags", [])
+    ]
+    assert len(helper_cells) == 1
+
+    namespace: dict = {}
+    for cell in notebook["cells"]:
+        if cell["cell_type"] != "code":
+            continue
+        exec("".join(cell["source"]), namespace)
+        if cell is helper_cells[0]:
+            break
+
+    sigma_figure, sigma_axis = namespace["plot_sigma_profile"](
+        "CCO", [1.0, 2.0, 1.5]
+    )
+    assert len(sigma_axis.lines) == 1
+
+    pair_figure, pair_axes = namespace["plot_sigma_profile_pair"](
+        "CCO", [1.0, 2.0, 1.5], "O", [0.5, 1.0, 0.75]
+    )
+    assert len(pair_axes) == 2
+    assert [len(axis.lines) for axis in pair_axes] == [1, 1]
+
+    binary_figure, binary_axis = namespace["plot_binary_lng"](
+        [0.0, 0.5, 1.0],
+        313.15,
+        [0.2, 0.1, 0.0],
+        [0.0, 0.1, 0.2],
+        [0.01, 0.02, 0.01],
+        [0.02, 0.01, 0.02],
+        "CCO",
+        "O",
+    )
+    assert len(binary_axis.lines) == 2
+    assert len(binary_axis.collections) == 2
+
+    for figure in (sigma_figure, pair_figure, binary_figure):
+        plt.close(figure)
 
 
 def test_example_notebook_contains_no_retained_execution_state() -> None:
