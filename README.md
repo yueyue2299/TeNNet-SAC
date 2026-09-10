@@ -4,6 +4,8 @@ TeNNet-SAC (Thermodynamics-Embedded Neural Network for Segment Activity Coeffici
 
 ![TeNNet-SAC](architecture.png)
 
+**Try it online:** Use the [TeNNet-SAC Hugging Face Space](https://huggingface.co/spaces/stlin/tennetsac) to test the model directly in your browser without installing it locally.
+
 This project provides:
 
 1. **σ-profile prediction model**, including surface area and molecular volume estimation  

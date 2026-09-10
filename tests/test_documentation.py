@@ -18,6 +18,15 @@ def test_readme_documents_the_public_package_and_notebook_location() -> None:
     assert "`src/tennetsac`" in readme
 
 
+def test_readme_links_to_the_online_hugging_face_demo() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert (
+        "[TeNNet-SAC Hugging Face Space]"
+        "(https://huggingface.co/spaces/stlin/tennetsac)"
+    ) in readme
+
+
 def test_readme_documents_the_smi_ted_asset_workflow_and_immutable_updates() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     normalized_readme = " ".join(readme.split())
