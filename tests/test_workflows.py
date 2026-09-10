@@ -287,16 +287,16 @@ def test_publish_pypi_downloads_verifies_and_publishes_existing_assets_only():
 def test_external_actions_are_immutable_and_audited() -> None:
     expected = {
         "actions/checkout": (
-            "11d5960a326750d5838078e36cf38b85af677262",
-            "v4.4.0",
+            "3d3c42e5aac5ba805825da76410c181273ba90b1",
+            "v7.0.1",
         ),
         "actions/setup-python": (
-            "a26af69be951a213d495a4c3e4e4022e16d87065",
-            "v5.6.0",
+            "5fda3b95a4ea91299a34e894583c3862153e4b97",
+            "v7.0.0",
         ),
         "actions/upload-artifact": (
-            "ea165f8d65b6e75b540449e92b4886f43607fa02",
-            "v4.6.2",
+            "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+            "v7.0.1",
         ),
         "pypa/gh-action-pypi-publish": (
             "dc37677b2e1c63e2034f94d8a5b11f265b73ba33",
